@@ -4,7 +4,7 @@ function Home2() {
   return (
     <>
       <Button variant="primary">Primary</Button>
-      <h1>Holla</h1>
+      <h1>Holla laksjd</h1>
     </>
   );
 }
