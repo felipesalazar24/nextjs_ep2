@@ -8,6 +8,9 @@ import { useCart } from '../context/CartContext';
 export default function CarritoPage() {
     const { cart, removeFromCart, updateQuantity, clearCart, getTotal, getTotalItems } = useCart();
 
+    console.log('📦 Carrito actual:', cart);
+    console.log('🔢 Total items:', getTotalItems());
+
     const handleQuantityChange = (productId, newQuantity) => {
         if (newQuantity < 1) {
             removeFromCart(productId);
