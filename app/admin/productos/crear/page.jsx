@@ -18,15 +18,7 @@ import {
 import { useAuth } from "../../../context/AuthContext";
 // Nota: NO importamos Header aquí (el layout ya lo renderiza)
 
-const CATEGORIES = [
-  "Mouse",
-  "Teclado",
-  "Audifono",
-  "Monitor",
-  "Accesorio",
-  "Silla",
-  "Placa de Video",
-];
+const CATEGORIES = ["Mouse", "Teclado", "Audifono", "Monitor"];
 
 export default function CrearProductoPage() {
   const auth = useAuth();
