@@ -1,0 +1,22 @@
+[
+  {
+    "id": 1,
+    "email": "mati.vegaa@duocuc.cl",
+    "password": "adminmatias",
+    "nombre": "Matias",
+    "telefono": "",
+    "region": "",
+    "comuna": "",
+    "rol": "admin"
+  },
+  {
+    "id": 2,
+    "email": "fe.salazarv@duocuc.cl",
+    "password": "adminfelipe",
+    "nombre": "Felipe",
+    "telefono": "",
+    "region": "",
+    "comuna": "",
+    "rol": "admin"
+  }
+]
