@@ -203,10 +203,14 @@ export default function CrearProductoPage() {
           return;
         }
 
+        // Evitar que la imagen principal esté también en miniaturas:
         setUploaded((prev) => {
-          const newMiniSet = new Set([...(prev.miniaturas || []), ...returned]);
-          const newMini = Array.from(newMiniSet);
+          // Determinar qué imagen será la principal (la previa o la primera devuelta)
           const newImagen = prev.imagen || returned[0];
+          // Combinar miniaturas previas + nuevas, pero excluir la imagen principal
+          const combinedCandidates = [...(prev.miniaturas || []), ...returned];
+          const filtered = combinedCandidates.filter((x) => x !== newImagen);
+          const newMini = Array.from(new Set(filtered));
           return { imagen: newImagen, miniaturas: newMini };
         });
 
@@ -337,8 +341,26 @@ export default function CrearProductoPage() {
 
   const setAsPrincipal = (url) => {
     setUploaded((prev) => {
-      setForm((curr) => ({ ...curr, imagen: url }));
-      return { ...prev, imagen: url };
+      const prevPrincipal = prev.imagen;
+      // Si ya es la misma, no hacemos nada
+      if (prevPrincipal === url) return prev;
+
+      // Quitar la nueva principal de las miniaturas (si está)
+      const miniSinNueva = (prev.miniaturas || []).filter((x) => x !== url);
+
+      // Si existía una imagen principal previa, añadirla a miniaturas (si no estaba ya)
+      let nuevaMini = miniSinNueva.slice();
+      if (prevPrincipal) {
+        if (!nuevaMini.includes(prevPrincipal)) {
+          // la agregamos al inicio para mantener visibilidad
+          nuevaMini = [prevPrincipal, ...nuevaMini];
+        }
+      }
+
+      // Actualizar también el form (miniaturasList e imagen)
+      setForm((curr) => ({ ...curr, imagen: url, miniaturasList: nuevaMini }));
+
+      return { ...prev, imagen: url, miniaturas: nuevaMini };
     });
   };
 
