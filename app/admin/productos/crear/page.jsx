@@ -19,6 +19,7 @@ import { useAuth } from "../../../context/AuthContext";
 // Nota: NO importamos Header aquí (el layout ya lo renderiza)
 
 const CATEGORIES = ["Mouse", "Teclado", "Audifono", "Monitor"];
+const STORAGE_KEY = "admin_producto_uploaded_draft";
 
 export default function CrearProductoPage() {
   const auth = useAuth();
@@ -41,6 +42,45 @@ export default function CrearProductoPage() {
     miniaturas: [],
   });
 
+  // Persistencia en localStorage
+  const loadSavedUploads = () => {
+    try {
+      if (typeof window === "undefined") return null;
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      if (
+        parsed &&
+        (typeof parsed.imagen === "string" || parsed.imagen === null) &&
+        Array.isArray(parsed.miniaturas)
+      ) {
+        return parsed;
+      }
+      return null;
+    } catch (err) {
+      console.warn("Error leyendo storage uploads", err);
+      return null;
+    }
+  };
+
+  const saveUploadsToStorage = (obj) => {
+    try {
+      if (typeof window === "undefined") return;
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(obj));
+    } catch (err) {
+      console.warn("Error guardando uploads en storage", err);
+    }
+  };
+
+  const clearUploadsFromStorage = () => {
+    try {
+      if (typeof window === "undefined") return;
+      localStorage.removeItem(STORAGE_KEY);
+    } catch (err) {
+      /* ignore */
+    }
+  };
+
   // callback ref + estado para detectar el nodo del drop area de forma robusta
   const dropNodeRef = useRef(null);
   const [dropNode, setDropNode] = useState(null);
@@ -60,6 +100,35 @@ export default function CrearProductoPage() {
   const [catsOpen, setCatsOpen] = useState(false);
 
   const [manualOpen, setManualOpen] = useState(false);
+
+  // Al montar: cargar estado guardado (si existe)
+  useEffect(() => {
+    const saved = loadSavedUploads();
+    if (saved) {
+      setUploaded((prev) => {
+        const imagen = prev.imagen || saved.imagen || null;
+        const combined = Array.from(
+          new Set([...(prev.miniaturas || []), ...(saved.miniaturas || [])])
+        );
+        const finalMini = combined.filter((x) => x !== imagen);
+        return { imagen, miniaturas: finalMini };
+      });
+
+      setForm((prev) => ({
+        ...prev,
+        imagen: prev.imagen || saved.imagen || "" || prev.imagen,
+        miniaturasList: manualTouched
+          ? prev.miniaturasList
+          : [...(saved.miniaturas || [])],
+      }));
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // solo al montar
+
+  useEffect(() => {
+    if (!uploaded) return;
+    saveUploadsToStorage(uploaded);
+  }, [uploaded]);
 
   useEffect(() => {
     if (!uploaded.miniaturas) return;
@@ -107,7 +176,6 @@ export default function CrearProductoPage() {
         /* ignore */
       }
     };
-
     const handleDragEnter = (e) => {
       prevent(e);
       setDragActive(true);
@@ -258,6 +326,7 @@ export default function CrearProductoPage() {
       form.miniaturasList && form.miniaturasList.length
         ? form.miniaturasList.map((s) => s.trim()).filter(Boolean)
         : uploaded.miniaturas.slice();
+
     const payload = {
       nombre: form.nombre.trim(),
       precio: Number(form.precio),
@@ -282,6 +351,9 @@ export default function CrearProductoPage() {
         setIsLoading(false);
         return;
       }
+
+      // Limpio el draft guardado ya que el producto se creó correctamente
+      clearUploadsFromStorage();
 
       setSuccessMsg("Producto creado correctamente");
       setTimeout(() => router.push("/admin/productos"), 900);
@@ -332,6 +404,7 @@ export default function CrearProductoPage() {
         newImagen = null;
         setForm((curr) => ({ ...curr, imagen: "" }));
       }
+      // al actualizar uploaded, useEffect guardará en storage automáticamente
       setIsLoading(false);
       return { ...prev, imagen: newImagen, miniaturas: arr };
     });
@@ -376,6 +449,8 @@ export default function CrearProductoPage() {
       const arr = prev.miniaturas.filter((x) => x !== url);
       setForm((curr) => ({ ...curr, imagen: "", miniaturasList: arr }));
       setIsLoading(false);
+      // limpiar storage si ya no hay miniaturas ni imagen
+      if (arr.length === 0) clearUploadsFromStorage();
       return { imagen: null, miniaturas: arr };
     });
   };
