@@ -203,15 +203,14 @@ export default function CrearProductoPage() {
           return;
         }
 
-        // Evitar que la imagen principal esté también en miniaturas:
+        // USAR EXACTAMENTE lo que devuelve el servidor (no agregar ni quitar extensiones)
         setUploaded((prev) => {
-          // Determinar qué imagen será la principal (la previa o la primera devuelta)
+          const newMiniSet = new Set([...(prev.miniaturas || []), ...returned]);
+          const newMini = Array.from(newMiniSet);
           const newImagen = prev.imagen || returned[0];
-          // Combinar miniaturas previas + nuevas, pero excluir la imagen principal
-          const combinedCandidates = [...(prev.miniaturas || []), ...returned];
-          const filtered = combinedCandidates.filter((x) => x !== newImagen);
-          const newMini = Array.from(new Set(filtered));
-          return { imagen: newImagen, miniaturas: newMini };
+          // Asegurarnos de que la imagen principal no aparezca duplicada en miniaturas
+          const finalMini = newMini.filter((x) => x !== newImagen);
+          return { imagen: newImagen, miniaturas: finalMini };
         });
 
         setIsLoading(false);
@@ -259,7 +258,6 @@ export default function CrearProductoPage() {
       form.miniaturasList && form.miniaturasList.length
         ? form.miniaturasList.map((s) => s.trim()).filter(Boolean)
         : uploaded.miniaturas.slice();
-
     const payload = {
       nombre: form.nombre.trim(),
       precio: Number(form.precio),
@@ -342,22 +340,17 @@ export default function CrearProductoPage() {
   const setAsPrincipal = (url) => {
     setUploaded((prev) => {
       const prevPrincipal = prev.imagen;
-      // Si ya es la misma, no hacemos nada
       if (prevPrincipal === url) return prev;
 
-      // Quitar la nueva principal de las miniaturas (si está)
       const miniSinNueva = (prev.miniaturas || []).filter((x) => x !== url);
 
-      // Si existía una imagen principal previa, añadirla a miniaturas (si no estaba ya)
       let nuevaMini = miniSinNueva.slice();
       if (prevPrincipal) {
         if (!nuevaMini.includes(prevPrincipal)) {
-          // la agregamos al inicio para mantener visibilidad
           nuevaMini = [prevPrincipal, ...nuevaMini];
         }
       }
 
-      // Actualizar también el form (miniaturasList e imagen)
       setForm((curr) => ({ ...curr, imagen: url, miniaturasList: nuevaMini }));
 
       return { ...prev, imagen: url, miniaturas: nuevaMini };
@@ -387,7 +380,6 @@ export default function CrearProductoPage() {
     });
   };
 
-  // Restaurar UNA miniatura manual al valor por defecto (solo su campo)
   const restoreMiniaturaAt = (idx) => {
     setForm((prev) => {
       const copy = [...(prev.miniaturasList || [])];
@@ -399,7 +391,6 @@ export default function CrearProductoPage() {
       copy[idx] = defaultVal;
       return { ...prev, miniaturasList: copy };
     });
-    // mantener manualTouched para no perder la intención del usuario
   };
 
   const updateMiniaturaField = (idx, value) => {
@@ -419,7 +410,7 @@ export default function CrearProductoPage() {
       imagen: uploaded.imagen || prev.imagen || "",
     }));
   };
-  // --- Ahora que TODOS los hooks están declarados, manejamos la hidratación/redirect ---
+
   useEffect(() => {
     // si el provider aún no terminó la lectura inicial, esperar
     if (auth.hydrated === false) return;
@@ -615,7 +606,11 @@ export default function CrearProductoPage() {
                           Principal
                         </div>
                         <img
-                          src={uploaded.imagen}
+                          src={
+                            uploaded.imagen
+                              ? encodeURI(uploaded.imagen)
+                              : uploaded.imagen
+                          }
                           alt="principal"
                           style={{
                             width: 88,
@@ -649,7 +644,7 @@ export default function CrearProductoPage() {
                         }}
                       >
                         <img
-                          src={m}
+                          src={m ? encodeURI(m) : m}
                           alt={`mini-${i}`}
                           style={{
                             width: 88,

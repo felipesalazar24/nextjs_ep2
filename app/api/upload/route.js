@@ -1,95 +1,128 @@
-import fs from 'fs/promises';
-import path from 'path';
-import { NextResponse } from 'next/server';
+import fs from "fs";
+import path from "path";
+import { randomUUID } from "crypto";
+import { NextResponse } from "next/server";
 
-// POST /api/upload  (ya existente) -> guarda archivos
+/**
+ * Route handler para app/api/upload:
+ * - POST: recibe JSON { files: [{ name, data }] } donde data es dataURL o base64.
+ * - DELETE: recibe JSON { file: "/assets/..." } para borrar.
+ * - Guarda archivos en public/assets/productos usando randomUUID() para el nombre.
+ * - No utiliza 'uuid' externo para evitar dependencia.
+ */
+
+const ensureUploadsDir = (uploadsDir) => {
+  if (!fs.existsSync(uploadsDir)) {
+    fs.mkdirSync(uploadsDir, { recursive: true });
+  }
+};
+
+const mimeToExt = (mime) => {
+  if (!mime) return "";
+  const m = mime.toLowerCase();
+  if (m.includes("jpeg") || m.includes("jpg")) return ".jpg";
+  if (m.includes("png")) return ".png";
+  if (m.includes("gif")) return ".gif";
+  if (m.includes("webp")) return ".webp";
+  if (m.includes("svg")) return ".svg";
+  return "";
+};
+
 export async function POST(req) {
   try {
-    const body = await req.json();
-    const files = Array.isArray(body.files) ? body.files : (body.file ? [body.file] : []);
-    if (!files || files.length === 0) {
-      return NextResponse.json({ error: 'No se recibieron archivos' }, { status: 400 });
+    const body = await req.json().catch(() => ({}));
+    const files = Array.isArray(body.files) ? body.files : [];
+
+    if (!files.length) {
+      return NextResponse.json({ files: [] }, { status: 400 });
     }
 
-    const destDir = path.join(process.cwd(), 'public', 'assets', 'productos');
-    await fs.mkdir(destDir, { recursive: true });
+    const uploadsDir = path.join(
+      process.cwd(),
+      "public",
+      "assets",
+      "productos"
+    );
+    ensureUploadsDir(uploadsDir);
 
-    const saved = [];
+    const savedFiles = [];
 
     for (const f of files) {
-      if (!f || !f.data || !f.name) continue;
-      const m = String(f.data).match(/^data:(.+);base64,(.+)$/);
-      if (!m) {
-        const rawBase64 = f.data;
-        const ext = path.extname(f.name) || '.jpg';
-        const fileName = `${Date.now()}-${Math.random().toString(36).slice(2,8)}${ext}`;
-        const filePath = path.join(destDir, fileName);
-        await fs.writeFile(filePath, Buffer.from(rawBase64, 'base64'));
-        saved.push(`/assets/productos/${fileName}`);
+      const { name = "", data = "" } = f;
+
+      // soporta data URLs: data:image/jpeg;base64,....
+      const match =
+        typeof data === "string" && data.match(/^data:([^;]+);base64,(.+)$/);
+      let mime = null;
+      let b64 = null;
+      if (match) {
+        mime = match[1];
+        b64 = match[2];
+      } else {
+        // si viene solo base64 (o con prefijo base64,)
+        b64 =
+          typeof data === "string"
+            ? data.replace(/^base64,/, "").replace(/\s+/g, "")
+            : null;
+      }
+
+      // Preferir la extensión provista en el nombre; si no, inferir por mime
+      let ext = path.extname(name).toLowerCase(); // incluye el punto si existe
+      if (!ext) {
+        ext = mimeToExt(mime) || "";
+      }
+
+      // Generar nombre único con randomUUID() y asegurar solo UNA vez la extensión
+      const uuid =
+        typeof randomUUID === "function"
+          ? randomUUID()
+          : Date.now().toString(36);
+      const filename = ext ? `${uuid}${ext}` : uuid;
+      const destPath = path.join(uploadsDir, filename);
+
+      if (!b64) {
+        // No hay datos válidos: omitir
+        console.warn("Archivo sin base64 válido, omitiendo:", name);
         continue;
       }
-      const mime = m[1];
-      const b64 = m[2];
-      let ext = '.jpg';
-      if (mime === 'image/png') ext = '.png';
-      else if (mime === 'image/webp') ext = '.webp';
-      else if (mime === 'image/gif') ext = '.gif';
-      else if (mime === 'image/svg+xml') ext = '.svg';
-      else if (mime === 'image/jpeg') ext = '.jpg';
 
-      const base = path.basename(f.name).replace(/\s+/g, '_').replace(/[^\w.-]/g, '');
-      const fileName = `${Date.now()}-${Math.random().toString(36).slice(2,6)}-${base || 'img'}${ext}`;
-      const filePath = path.join(destDir, fileName);
+      // Escribir fichero
+      const buffer = Buffer.from(b64, "base64");
+      fs.writeFileSync(destPath, buffer);
 
-      await fs.writeFile(filePath, Buffer.from(b64, 'base64'));
-      saved.push(`/assets/productos/${fileName}`);
+      const publicUrl = `/assets/productos/${filename}`;
+      savedFiles.push(publicUrl);
     }
 
-    return NextResponse.json({ files: saved }, { status: 201 });
+    return NextResponse.json({ files: savedFiles }, { status: 200 });
   } catch (err) {
-    console.error('upload error', err);
-    return NextResponse.json({ error: 'Error guardando archivos', details: String(err.message) }, { status: 500 });
+    console.error("app/api/upload POST error:", err);
+    return NextResponse.json(
+      { error: "Error subiendo archivos" },
+      { status: 500 }
+    );
   }
 }
 
-// DELETE /api/upload  -> borra un archivo dado su path público (/assets/productos/...)
 export async function DELETE(req) {
   try {
     const body = await req.json().catch(() => ({}));
-    const file = body.file || body.path;
-    if (!file || typeof file !== 'string') {
-      return NextResponse.json({ error: 'Se requiere la propiedad "file" con la ruta pública' }, { status: 400 });
-    }
+    const file = body.file;
+    if (!file)
+      return NextResponse.json({ error: "No file provided" }, { status: 400 });
 
-    // Seguridad: solo permitir rutas dentro de /assets/productos
-    const allowedPrefix = '/assets/productos/';
-    if (!file.startsWith(allowedPrefix)) {
-      return NextResponse.json({ error: 'Ruta no permitida' }, { status: 400 });
-    }
+    // quitar slash inicial si viene con /
+    const publicPath = file.replace(/^\/+/, "");
+    const fullPath = path.join(process.cwd(), "public", publicPath);
 
-    const relPath = file.replace(/^\/+/, ''); // quita slash inicial
-    const absPath = path.join(process.cwd(), 'public', relPath);
-    const destDir = path.join(process.cwd(), 'public', 'assets', 'productos');
-
-    // Evitar path traversal: verificar que absPath empiece con destDir
-    const resolved = path.resolve(absPath);
-    const resolvedDest = path.resolve(destDir);
-    if (!resolved.startsWith(resolvedDest)) {
-      return NextResponse.json({ error: 'Ruta fuera de la carpeta permitida' }, { status: 400 });
-    }
-
-    try {
-      await fs.unlink(resolved);
-      return NextResponse.json({ deleted: file }, { status: 200 });
-    } catch (fsErr) {
-      if (fsErr.code === 'ENOENT') {
-        return NextResponse.json({ error: 'Archivo no encontrado' }, { status: 404 });
-      }
-      console.error('fs unlink error', fsErr);
-      return NextResponse.json({ error: 'Error eliminando archivo', details: String(fsErr.message) }, { status: 500 });
+    if (fs.existsSync(fullPath)) {
+      fs.unlinkSync(fullPath);
+      return NextResponse.json({ ok: true }, { status: 200 });
+    } else {
+      return NextResponse.json({ error: "File not found" }, { status: 404 });
     }
   } catch (err) {
-    console.error('DELETE /api/upload error', err);
-    return NextResponse.json({ error: 'Error procesando la solicitud', details: String(err.message) }, { status: 500 });
+    console.error("app/api/upload DELETE error:", err);
+    return NextResponse.json({ error: "Server error" }, { status: 500 });
   }
 }
