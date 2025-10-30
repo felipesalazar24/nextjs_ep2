@@ -1,17 +1,22 @@
-// app/page.jsx
 "use client";
 
-import { Container, Row, Col, Card } from "react-bootstrap";
+import { Container, Row, Col, Card, Button, Spinner } from "react-bootstrap";
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useEffect } from "react";
 
-// Componente para imagen
+// Componente para imagen con placeholder en caso de error
 const ProductImage = (props) => {
   const [imgSrc, setImgSrc] = useState(props.src);
 
   const handleError = () => {
-    setImgSrc("https://via.placeholder.com/150x150/cccccc/969696?text=Imagen");
+    setImgSrc(
+      "https://via.placeholder.com/300x200/cccccc/969696?text=Imagen+No+Disponible"
+    );
   };
+
+  useEffect(() => {
+    setImgSrc(props.src);
+  }, [props.src]);
 
   return (
     <Card.Img
@@ -24,43 +29,54 @@ const ProductImage = (props) => {
   );
 };
 
-const productos = [
-  {
-    id: 1,
-    nombre: "Logitech G502",
-    precio: 83000,
-    imagen: "/assets/productos/M1.jpg",
-    descripcion: "Mouse gaming de alta precisión",
-    atributo: "Mouse",
-  },
-  {
-    id: 2,
-    nombre: "Logitech G305",
-    precio: 35000,
-    imagen: "/assets/productos/M2.1.jpg",
-    descripcion: "Mouse inalámbrico gaming",
-    atributo: "Mouse",
-  },
-  {
-    id: 4,
-    nombre: "Redragon Kumara",
-    precio: 26000,
-    imagen: "/assets/productos/T1.jpg",
-    descripcion: "Teclado mecánico RGB",
-    atributo: "Teclado",
-  },
-  {
-    id: 7,
-    nombre: "Logitech G435",
-    precio: 58000,
-    imagen: "/assets/productos/A1.jpg",
-    descripcion: "Audífonos inalámbricos gaming",
-    atributo: "Audifono",
-  },
-];
-
 export default function HomePage() {
-  const productosDestacados = productos.slice(0, 4);
+  const [productos, setProductos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+    fetch("/api/productos")
+      .then((res) => {
+        if (!res.ok) throw new Error("Error al cargar productos");
+        return res.json();
+      })
+      .then((data) => {
+        if (mounted) setProductos(Array.isArray(data) ? data : []);
+      })
+      .catch((err) => {
+        console.error(err);
+        if (mounted) setError(err.message || "Error");
+      })
+      .finally(() => {
+        if (mounted) setLoading(false);
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  if (loading) {
+    return (
+      <Container className="py-4 text-center">
+        <Spinner animation="border" role="status" />
+      </Container>
+    );
+  }
+
+  if (error) {
+    return (
+      <Container className="py-4 text-center">
+        <h2>Error al cargar productos</h2>
+        <p className="text-muted">{error}</p>
+      </Container>
+    );
+  }
+
+  // Tomamos hasta 8 productos destacados
+  const destacados = productos.slice(0, 8);
+  const primeraFila = destacados.slice(0, 4);
+  const segundaFila = destacados.slice(4, 8);
 
   return (
     <>
@@ -107,8 +123,9 @@ export default function HomePage() {
           </Col>
         </Row>
 
-        <Row className="g-4">
-          {productosDestacados.map((producto) => (
+        {/* Primera fila (4 productos) */}
+        <Row className="g-4 mb-4">
+          {primeraFila.map((producto) => (
             <Col key={producto.id} sm={6} md={3}>
               <Card className="h-100 shadow-sm border-0">
                 <ProductImage
@@ -123,7 +140,44 @@ export default function HomePage() {
                 <Card.Body className="text-center">
                   <Card.Title className="h6">{producto.nombre}</Card.Title>
                   <Card.Text className="text-primary fw-bold">
-                    ${producto.precio.toLocaleString("es-CL")}
+                    $
+                    {typeof producto.precio === "number"
+                      ? producto.precio.toLocaleString("es-CL")
+                      : producto.precio}
+                  </Card.Text>
+                  <Link
+                    href={`/productos/${producto.id}`}
+                    className="btn btn-outline-primary btn-sm"
+                  >
+                    Ver Producto
+                  </Link>
+                </Card.Body>
+              </Card>
+            </Col>
+          ))}
+        </Row>
+
+        {/* Segunda fila (otra fila debajo con 4 productos) */}
+        <Row className="g-4">
+          {segundaFila.map((producto) => (
+            <Col key={producto.id} sm={6} md={3}>
+              <Card className="h-100 shadow-sm border-0">
+                <ProductImage
+                  src={producto.imagen}
+                  alt={producto.nombre}
+                  style={{
+                    height: "150px",
+                    objectFit: "contain",
+                    padding: "15px",
+                  }}
+                />
+                <Card.Body className="text-center">
+                  <Card.Title className="h6">{producto.nombre}</Card.Title>
+                  <Card.Text className="text-primary fw-bold">
+                    $
+                    {typeof producto.precio === "number"
+                      ? producto.precio.toLocaleString("es-CL")
+                      : producto.precio}
                   </Card.Text>
                   <Link
                     href={`/productos/${producto.id}`}

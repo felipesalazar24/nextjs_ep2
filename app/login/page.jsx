@@ -53,8 +53,8 @@ export default function LoginPage() {
             return;
         }
 
-        // Intentar login
-        const result = login(formData.email, formData.password);
+        // Intentar login (ahora await para usar el endpoint JSON)
+        const result = await login(formData.email, formData.password);
         
         if (result.success) {
             if (result.isAdmin) {
@@ -143,7 +143,7 @@ export default function LoginPage() {
 
                             {/* Información de administradores (solo para desarrollo) */}
                             <div className="mt-4 p-3 bg-light rounded">
-                                <h6 className="small fw-bold mb-2">👨‍💼 Accesos de Administrador:</h6>
+                                <h6 className="small fw-bold mb-2">👨‍💻 Accesos de Administrador:</h6>
                                 <div className="small text-muted">
                                     <div>mati.vegaa@duocuc.cl / adminmatias</div>
                                     <div>fe.salazarv@duocuc.cl / adminfelipe</div>
