@@ -397,7 +397,6 @@ export default function CrearProductoPage() {
       imagen: uploaded.imagen || prev.imagen || "",
     }));
   };
-
   // --- Ahora que TODOS los hooks están declarados, manejamos la hidratación/redirect ---
   useEffect(() => {
     // si el provider aún no terminó la lectura inicial, esperar
