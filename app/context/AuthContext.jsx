@@ -1,100 +1,111 @@
-// app/context/AuthContext.jsx
 'use client';
 
-import { createContext, useContext, useState, useEffect } from 'react';
+import React, { createContext, useContext, useEffect, useState } from 'react';
+import { useRouter } from 'next/navigation';
 
 const AuthContext = createContext();
 
-// Usuarios administradores
-const administradores = [
-    { email: "mati.vegaa@duocuc.cl", password: "adminmatias", nombre: "Matias" },
-    { email: "fe.salazarv@duocuc.cl", password: "adminfelipe", nombre: "Felipe" }
-];
-
 export function AuthProvider({ children }) {
-    const [user, setUser] = useState(null);
-    const [isLoading, setIsLoading] = useState(true);
+  const [user, setUser] = useState(null);
+  const router = useRouter();
 
-    // Cargar usuario desde localStorage al iniciar
-    useEffect(() => {
-        const savedUser = localStorage.getItem('gameTechUser');
-        if (savedUser) {
-            setUser(JSON.parse(savedUser));
-        }
-        setIsLoading(false);
-    }, []);
+  // Inicializar desde localStorage (mantener comportamiento actual)
+  useEffect(() => {
+    try {
+      const raw = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
+      if (raw) {
+        setUser(JSON.parse(raw));
+      }
+    } catch (e) {
+      console.error('AuthContext: error leyendo localStorage', e);
+    }
+  }, []);
 
-    // Login function
-    const login = (email, password) => {
-        // Verificar si es administrador
-        const admin = administradores.find(admin => 
-            admin.email === email && admin.password === password
-        );
-        
-        if (admin) {
-            const userData = { ...admin, isAdmin: true };
-            setUser(userData);
-            localStorage.setItem('gameTechUser', JSON.stringify(userData));
-            return { success: true, isAdmin: true };
-        }
+  // Guarda usuario en state y localStorage
+  const saveUser = (u) => {
+    setUser(u);
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('user', JSON.stringify(u));
+      }
+    } catch (e) {
+      console.error('AuthContext: error guardando localStorage', e);
+    }
+  };
 
-        // Verificar si es usuario normal
-        const savedUser = localStorage.getItem('user');
-        if (savedUser) {
-            const userData = JSON.parse(savedUser);
-            if (userData.email === email && userData.password === password) {
-                setUser({ ...userData, isAdmin: false });
-                localStorage.setItem('gameTechUser', JSON.stringify({ ...userData, isAdmin: false }));
-                return { success: true, isAdmin: false };
-            }
-        }
+  // login usa el endpoint /api/auth/login
+  // devuelve { success: boolean, message?, isAdmin?, user? }
+  const login = async (email, password) => {
+    try {
+      const res = await fetch('/api/auth/login', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email, password }),
+      });
 
-        return { success: false, message: 'Credenciales incorrectas' };
-    };
+      const data = await res.json();
 
-    // Register function
-    const register = (userData) => {
-        // Validar email (solo dominios permitidos)
-        const emailRegex = /^[a-zA-Z0-9._%+-]+@(gmail\.com|duocuc\.cl|profesor\.duoc\.cl)$/;
-        if (!emailRegex.test(userData.email)) {
-            return { success: false, message: 'Dominio de email no permitido' };
-        }
+      if (!res.ok) {
+        return { success: false, message: data.error || 'Error al iniciar sesión' };
+      }
 
-        // Validar contraseña (4-10 caracteres)
-        if (userData.password.length < 4 || userData.password.length > 10) {
-            return { success: false, message: 'La contraseña debe tener entre 4 y 10 caracteres' };
-        }
+      // data es el usuario (sin password)
+      saveUser(data);
+      return { success: true, isAdmin: data.rol === 'admin', user: data };
+    } catch (err) {
+      console.error('AuthContext login error', err);
+      return { success: false, message: 'Error de red' };
+    }
+  };
 
-        // Guardar usuario
-        localStorage.setItem('user', JSON.stringify(userData));
-        return { success: true };
-    };
+  // register usa POST /api/usuarios
+  // recibe el objeto formData y devuelve { success, message, user? }
+  const register = async (payload) => {
+    try {
+      const res = await fetch('/api/usuarios', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
 
-    // Logout function
-    const logout = () => {
-        setUser(null);
-        localStorage.removeItem('gameTechUser');
-    };
+      const data = await res.json();
 
-    const value = {
-        user,
-        login,
-        register,
-        logout,
-        isLoading
-    };
+      if (!res.ok) {
+        return { success: false, message: data.error || 'Error al registrar' };
+      }
 
-    return (
-        <AuthContext.Provider value={value}>
-            {children}
-        </AuthContext.Provider>
-    );
+      // No hacemos login automático (mantener flujo actual)
+      return { success: true, user: data };
+    } catch (err) {
+      console.error('AuthContext register error', err);
+      return { success: false, message: 'Error de red' };
+    }
+  };
+
+  const logout = () => {
+    setUser(null);
+    try {
+      if (typeof window !== 'undefined') {
+        localStorage.removeItem('user');
+      }
+    } catch (e) {
+      console.error('AuthContext: error limpiando localStorage', e);
+    }
+    // opcional: redirigir a home
+    router.push('/');
+  };
+
+  return (
+    <AuthContext.Provider value={{ user, login, register, logout }}>
+      {children}
+    </AuthContext.Provider>
+  );
 }
 
 export function useAuth() {
-    const context = useContext(AuthContext);
-    if (!context) {
-        throw new Error('useAuth debe ser usado dentro de AuthProvider');
-    }
-    return context;
+  const ctx = useContext(AuthContext);
+  if (!ctx) {
+    throw new Error('useAuth debe usarse dentro de AuthProvider');
+  }
+  return ctx;
 }
