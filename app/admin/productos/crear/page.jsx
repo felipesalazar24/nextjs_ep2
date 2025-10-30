@@ -176,6 +176,7 @@ export default function CrearProductoPage() {
         /* ignore */
       }
     };
+
     const handleDragEnter = (e) => {
       prevent(e);
       setDragActive(true);
@@ -516,7 +517,11 @@ export default function CrearProductoPage() {
             <Card.Body>
               <div className="d-flex justify-content-between align-items-center mb-3">
                 <h4 className="mb-0">Crear Producto</h4>
-                <Button variant="outline-secondary" href="/admin/productos">
+                <Button
+                  type="button"
+                  variant="outline-secondary"
+                  href="/admin/productos"
+                >
                   Volver a Productos
                 </Button>
               </div>
@@ -589,6 +594,7 @@ export default function CrearProductoPage() {
                         <Dropdown.Item
                           as="button"
                           key={cat}
+                          type="button"
                           onClick={() => selectCategoria(cat)}
                           className="d-flex justify-content-between align-items-center"
                           style={{ whiteSpace: "nowrap" }}
@@ -603,6 +609,7 @@ export default function CrearProductoPage() {
                       <Dropdown.Divider />
                       <div className="px-2 d-flex justify-content-between">
                         <Button
+                          type="button"
                           size="sm"
                           variant="light"
                           onClick={() =>
@@ -612,6 +619,7 @@ export default function CrearProductoPage() {
                           Limpiar
                         </Button>
                         <Button
+                          type="button"
                           size="sm"
                           variant="primary"
                           onClick={() => setCatsOpen(false)}
@@ -697,6 +705,7 @@ export default function CrearProductoPage() {
                         />
                         <div className="mt-1">
                           <Button
+                            type="button"
                             size="sm"
                             variant="link"
                             onClick={removePrincipal}
@@ -739,6 +748,7 @@ export default function CrearProductoPage() {
                           }}
                         >
                           <Button
+                            type="button"
                             size="sm"
                             variant="outline-primary"
                             onClick={() => setAsPrincipal(m)}
@@ -747,6 +757,7 @@ export default function CrearProductoPage() {
                             Principal
                           </Button>
                           <Button
+                            type="button"
                             size="sm"
                             variant="outline-danger"
                             onClick={() => removeMiniatura(m)}
@@ -766,6 +777,7 @@ export default function CrearProductoPage() {
                     <Form.Label className="mb-0">Rutas manuales</Form.Label>
                     <div>
                       <Button
+                        type="button"
                         variant="outline-secondary"
                         size="sm"
                         onClick={() => setManualOpen((v) => !v)}
@@ -799,6 +811,7 @@ export default function CrearProductoPage() {
                             placeholder="Ej: /assets/productos/MX.jpg"
                           />
                           <Button
+                            type="button"
                             variant="light"
                             onClick={() => restoreDefaults()}
                             style={{ marginLeft: 6 }}
@@ -828,6 +841,7 @@ export default function CrearProductoPage() {
                               placeholder="/assets/productos/MX.1.jpg"
                             />
                             <Button
+                              type="button"
                               variant="light"
                               onClick={() => restoreMiniaturaAt(idx)}
                             >
