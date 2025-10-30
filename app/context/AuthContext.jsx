@@ -7,6 +7,7 @@ const AuthContext = createContext();
 
 export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
+  const [hydrated, setHydrated] = useState(false);
   const router = useRouter();
 
   // Inicializar desde localStorage (mantener comportamiento actual)
@@ -15,9 +16,15 @@ export function AuthProvider({ children }) {
       const raw = typeof window !== 'undefined' ? localStorage.getItem('user') : null;
       if (raw) {
         setUser(JSON.parse(raw));
+      } else {
+        setUser(null);
       }
     } catch (e) {
       console.error('AuthContext: error leyendo localStorage', e);
+      setUser(null);
+    } finally {
+      // señalamos que ya terminamos la lectura inicial (hidratación)
+      setHydrated(true);
     }
   }, []);
 
@@ -96,7 +103,7 @@ export function AuthProvider({ children }) {
   };
 
   return (
-    <AuthContext.Provider value={{ user, login, register, logout }}>
+    <AuthContext.Provider value={{ user, login, register, logout, hydrated }}>
       {children}
     </AuthContext.Provider>
   );
