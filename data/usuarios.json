@@ -18,5 +18,65 @@
     "region": "",
     "comuna": "",
     "rol": "admin"
+  },
+  {
+    "id": 3,
+    "email": "test1@gmail.com",
+    "password": "1234",
+    "nombre": "test1",
+    "telefono": "",
+    "region": "Arica y Parinacota",
+    "comuna": "Camarones",
+    "rol": "user"
+  },
+  {
+    "id": 4,
+    "email": "test2@gmail.com",
+    "password": "1234",
+    "nombre": "test2",
+    "telefono": "",
+    "region": "Los Ríos",
+    "comuna": "La Unión",
+    "rol": "user"
+  },
+  {
+    "id": 5,
+    "email": "test3@duocuc.cl",
+    "password": "1234",
+    "nombre": "test3",
+    "telefono": "",
+    "region": "Araucanía",
+    "comuna": "Nueva Imperial",
+    "rol": "user"
+  },
+  {
+    "id": 6,
+    "email": "test4@duocuc.cl",
+    "password": "1234",
+    "nombre": "test4",
+    "telefono": "",
+    "region": "Araucanía",
+    "comuna": "Nueva Imperial",
+    "rol": "user"
+  },
+  {
+    "id": 7,
+    "email": "test5@profesor.duoc.cl",
+    "password": "1234",
+    "nombre": "test5",
+    "telefono": "",
+    "region": "Araucanía",
+    "comuna": "Melipeuco",
+    "rol": "user"
+  },
+  {
+    "id": 8,
+    "email": "test6@profesor.duoc.cl",
+    "password": "1234",
+    "nombre": "test6",
+    "telefono": "",
+    "region": "Valparaíso",
+    "comuna": "Zapallar",
+    "rol": "user"
   }
 ]
