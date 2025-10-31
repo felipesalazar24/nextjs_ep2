@@ -1,30 +1,46 @@
-// app/components/Header.jsx
 "use client";
-import {
-  Navbar,
-  Nav,
-  Container,
-  Button,
-  Badge,
-  Dropdown,
-} from "react-bootstrap";
+
+import React, { useEffect, useState, useMemo, useCallback } from "react";
+import { Navbar, Nav, Container, Badge, Dropdown } from "react-bootstrap";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
 
-export default function Header() {
+function HeaderComponent() {
   const pathname = usePathname();
-  const { getTotalItems } = useCart();
-  const { user, logout } = useAuth();
+  const cart = useCart();
+  const auth = useAuth();
 
-  const handleLogout = () => {
-    logout();
-    alert("Sesión cerrada correctamente");
-  };
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
 
-  // Compatibilidad: acepta user.rol === 'admin' o user.isAdmin (por si en otros lugares se setea)
-  const isAdmin = !!(user && (user.rol === "admin" || user.isAdmin));
+  // snapshot seguro del usuario
+  const user = auth?.user ?? null;
+  const logout = typeof auth?.logout === "function" ? auth.logout : () => {};
+
+  // calcular itemsCount sólo en cliente (mounted) y memoizado
+  const itemsCount = useMemo(() => {
+    if (!mounted) return 0;
+    try {
+      if (typeof cart?.getTotalItems === "function") {
+        return Number(cart.getTotalItems()) || 0;
+      }
+    } catch (e) {
+      console.error("getTotalItems error", e);
+    }
+    return 0;
+  }, [cart, mounted]);
+
+  const handleLogout = useCallback(() => {
+    try {
+      logout();
+    } catch (err) {
+      console.error("Logout error", err);
+    }
+  }, [logout]);
 
   return (
     <Navbar
@@ -104,7 +120,7 @@ export default function Header() {
           </Nav>
 
           <Nav className="ms-auto d-flex align-items-center header-actions">
-            {user ? (
+            {mounted && user ? (
               <Dropdown>
                 <Dropdown.Toggle
                   variant="outline-light"
@@ -112,12 +128,13 @@ export default function Header() {
                   className="d-flex align-items-center"
                 >
                   👤 {user.nombre || user.email}
-                  {isAdmin && (
+                  {(user.rol === "admin" || user.isAdmin) && (
                     <Badge bg="warning" text="dark" className="ms-1">
                       Admin
                     </Badge>
                   )}
                 </Dropdown.Toggle>
+
                 <Dropdown.Menu>
                   <Dropdown.ItemText>
                     <small>
@@ -126,8 +143,7 @@ export default function Header() {
                     </small>
                   </Dropdown.ItemText>
 
-                  {/* Si es admin mostrar link a /admin encima de Cerrar Sesión */}
-                  {isAdmin && (
+                  {(user.rol === "admin" || user.isAdmin) && (
                     <>
                       <Dropdown.Item as="div">
                         <Link href="/admin" className="dropdown-item">
@@ -159,18 +175,19 @@ export default function Header() {
                 </Link>
               </>
             )}
+
             <Link
               href="/carrito"
               className="btn btn-outline-warning btn-sm cart-btn position-relative"
             >
               🛒 Carrito
-              {getTotalItems() > 0 && (
+              {itemsCount > 0 && (
                 <Badge
                   bg="light"
                   text="dark"
                   className="cart-badge position-absolute top-0 start-100 translate-middle"
                 >
-                  {getTotalItems()}
+                  {itemsCount}
                 </Badge>
               )}
             </Link>
@@ -180,3 +197,5 @@ export default function Header() {
     </Navbar>
   );
 }
+
+export default React.memo(HeaderComponent);

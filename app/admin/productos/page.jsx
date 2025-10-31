@@ -37,6 +37,7 @@ export default function AdminProductosPage() {
 
   useEffect(() => {
     if (!user) return;
+    let mounted = true;
     const load = async () => {
       setLoading(true);
       setError("");
@@ -46,15 +47,20 @@ export default function AdminProductosPage() {
           const data = await res.json().catch(() => ({}));
           throw new Error(data.error || "Error al obtener productos");
         }
-        const data = await res.json();
+        const data = await res.json().catch(() => []);
+        if (!mounted) return;
         setProductos(Array.isArray(data) ? data : []);
       } catch (err) {
+        if (!mounted) return;
         setError(err.message || "Error desconocido");
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
     };
     load();
+    return () => {
+      mounted = false;
+    };
   }, [user]);
 
   const handleDelete = async (id) => {
@@ -77,7 +83,6 @@ export default function AdminProductosPage() {
 
   const openDetail = (p) => {
     setDetailProduct(p);
-    // seleccionar la imagen principal (imagen) por defecto; si no existe usar la primera miniatura
     const main =
       p.imagen ||
       (Array.isArray(p.miniaturas) && p.miniaturas.length
@@ -212,7 +217,6 @@ export default function AdminProductosPage() {
                 </Table>
               )}
 
-              {/* Modal con detalle completo del producto */}
               <Modal show={showDetail} onHide={closeDetail} centered size="lg">
                 <Modal.Header closeButton>
                   <Modal.Title>Detalle del producto</Modal.Title>
@@ -224,7 +228,6 @@ export default function AdminProductosPage() {
                         md={5}
                         className="d-flex flex-column align-items-center"
                       >
-                        {/* Imagen principal */}
                         {selectedImage ? (
                           <img
                             src={selectedImage}
@@ -248,9 +251,7 @@ export default function AdminProductosPage() {
                           />
                         )}
 
-                        {/* Miniaturas */}
                         <div className="d-flex gap-2 mt-3 flex-wrap justify-content-center">
-                          {/* mostrar la imagen principal también como miniatura si existe */}
                           {detailProduct.imagen && (
                             <button
                               type="button"
