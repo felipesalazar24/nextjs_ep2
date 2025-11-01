@@ -193,14 +193,7 @@ export default function AdminProductosPage() {
                             Ver
                           </Button>
 
-                          <Button
-                            variant="outline-primary"
-                            size="sm"
-                            className="me-2"
-                            href={`/admin/productos/${p.id}/editar`}
-                          >
-                            Editar
-                          </Button>
+                          {/* Editar button removed as requested */}
 
                           <Button
                             variant="danger"
