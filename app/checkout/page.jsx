@@ -17,17 +17,9 @@ import { useRouter } from "next/navigation";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
 
-/**
- * Checkout page (actualizada)
- * - Mantiene la lógica de región/comuna dependientes.
- * - Al pago simulado con resultado "success" llama a POST /api/sales para persistir la venta en data/sales.json
- * - Después de guardar (si es posible) limpia el carrito, guarda lastOrder en sessionStorage y redirige a success.
- * - En fallo simulado guarda lastFailedOrder en sessionStorage y redirige a /checkout/failed.
- *
- * Reemplaza: app/checkout/page.jsx
- */
-
-/* Mapa de regiones -> comunas (representativo) */
+/* ---------- Helpers de regiones (omitido aquí por brevedad en este bloque, se mantienen iguales) ---------- */
+/* ... (REGION_COMUNAS map and REGIONS constant) ... */
+/* For brevity in this snippet, the REGION_COMUNAS and REGIONS constants are the same as in your pasted file. */
 const REGION_COMUNAS = {
   "Arica y Parinacota": ["Arica", "Camarones", "Putre", "General Lagos"],
   Tarapacá: [
@@ -368,8 +360,66 @@ const REGION_COMUNAS = {
     "Puerto Williams",
   ],
 };
-
 const REGIONS = Object.keys(REGION_COMUNAS);
+/* ------------------------------------------------------------------------------------------------------ */
+
+/* ---------- Helpers para ofertas (inline, sin crear archivos) ---------- */
+const loadOffers = async () => {
+  let serverOffers = [];
+  try {
+    const res = await fetch("/api/offers").catch(() => null);
+    if (res && res.ok) serverOffers = await res.json().catch(() => []);
+  } catch (err) {
+    serverOffers = [];
+  }
+
+  let created = [];
+  try {
+    if (typeof window !== "undefined") {
+      const raw = localStorage.getItem("createdOffers");
+      created = raw ? JSON.parse(raw) : [];
+    }
+  } catch (err) {
+    created = [];
+  }
+
+  const map = new Map();
+  for (const o of serverOffers || []) {
+    const pid = String(o.productId ?? o.id ?? "").trim();
+    if (!pid) continue;
+    map.set(pid, { ...o, source: "server" });
+  }
+  for (const o of created || []) {
+    const pid = String(o.productId ?? "").trim();
+    if (!pid) continue;
+    map.set(pid, { ...o, source: "admin" });
+  }
+
+  return { offersArray: Array.from(map.values()), offersMap: map };
+};
+
+const getOfferForProduct = (offersMap, product) => {
+  if (!offersMap || !product) return null;
+  const pid = String(product.id ?? product._id ?? product.sku ?? "").trim();
+  return offersMap.get(pid) || null;
+};
+
+const getEffectivePrice = (product, offer) => {
+  const raw = Number(product.precio ?? product.price ?? 0) || 0;
+  if (!offer) return { oldPrice: null, price: raw, percent: 0 };
+  const oldPrice = Number(offer.oldPrice ?? raw) || raw;
+  let price = Number(offer.newPrice ?? 0);
+  let percent = Number(offer.percent ?? 0);
+
+  if (!price && percent && oldPrice)
+    price = Math.round(oldPrice * (1 - percent / 100));
+  if (!percent && price && oldPrice)
+    percent = Math.round(((oldPrice - price) / oldPrice) * 100);
+  if (!price || price <= 0) price = raw;
+
+  return { oldPrice: oldPrice || null, price, percent: percent || 0 };
+};
+/* ---------------------------------------------------------------------- */
 
 export default function CheckoutPage() {
   const router = useRouter();
@@ -392,9 +442,45 @@ export default function CheckoutPage() {
       ? cartContext.clearCart
       : () => {};
 
+  // offers state
+  const [offersMap, setOffersMap] = useState(new Map());
+  const [offersLoading, setOffersLoading] = useState(true);
+
+  // compute total using effective prices (offers applied)
+  const totalEffective = useMemo(() => {
+    let sum = 0;
+    for (const it of cartItems || []) {
+      const offer = getOfferForProduct(offersMap, it);
+      const ef = getEffectivePrice(it, offer);
+      const qty = Number(it.cantidad || it.quantity || it.qty || 1) || 1;
+      sum += Number(ef.price || 0) * qty;
+    }
+    return sum;
+  }, [cartItems, offersMap]);
+
   const total = useMemo(() => getTotal(), [cartItems, cartContext]);
 
   const [blocked, setBlocked] = useState(null);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      setOffersLoading(true);
+      try {
+        const { offersMap: om } = await loadOffers();
+        if (!mounted) return;
+        setOffersMap(om);
+      } catch (err) {
+        console.warn("Error cargando ofertas:", err);
+        if (mounted) setOffersMap(new Map());
+      } finally {
+        if (mounted) setOffersLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     const hasItems = Array.isArray(cartItems) && cartItems.length > 0;
@@ -509,8 +595,13 @@ export default function CheckoutPage() {
       const orderId = "ORDER" + String(Date.now()).slice(-8);
       const orderData = {
         id: orderId,
-        total: Number(total || 0),
-        items: cartItems.map((it) => ({ ...it })),
+        // use effective total (with offers)
+        total: Number(totalEffective || 0),
+        items: cartItems.map((it) => {
+          const offer = getOfferForProduct(offersMap, it);
+          const ef = getEffectivePrice(it, offer);
+          return { ...it, precio: ef.price };
+        }),
         customer: { ...form },
         createdAt: new Date().toISOString(),
       };
@@ -531,7 +622,6 @@ export default function CheckoutPage() {
               "Error saving sale record:",
               await res.text().catch(() => "")
             );
-            // optional: setServerMsg({ type: "warning", text: "No se pudo guardar el registro de venta en el servidor." });
           }
         } catch (err) {
           console.error("Fetch /api/sales error:", err);
@@ -647,61 +737,86 @@ export default function CheckoutPage() {
                         <th style={{ width: 80 }}>Imagen</th>
                         <th>Nombre</th>
                         <th style={{ width: 110 }}>Precio</th>
+                        <th style={{ width: 110 }}>Oferta</th>
                         <th style={{ width: 110 }}>Cantidad</th>
                         <th style={{ width: 140 }}>Subtotal</th>
                       </tr>
                     </thead>
                     <tbody>
                       {cartItems && cartItems.length > 0 ? (
-                        cartItems.map((it) => (
-                          <tr key={it.id}>
-                            <td>
-                              {it.imagen ? (
-                                <img
-                                  src={it.imagen}
-                                  alt={it.nombre}
-                                  style={{
-                                    width: 64,
-                                    height: 48,
-                                    objectFit: "cover",
-                                    borderRadius: 4,
-                                  }}
-                                  onError={(e) =>
-                                    (e.target.src =
-                                      "/assets/productos/placeholder.png")
-                                  }
-                                />
-                              ) : (
-                                <div
-                                  style={{
-                                    width: 64,
-                                    height: 48,
-                                    background: "#f5f5f5",
-                                    borderRadius: 4,
-                                  }}
-                                />
-                              )}
-                            </td>
-                            <td>{it.nombre}</td>
-                            <td className="text-end">
-                              ${Number(it.precio || 0).toLocaleString("es-CL")}
-                            </td>
-                            <td className="text-center">
-                              {Number(it.cantidad || 0)}
-                            </td>
-                            <td className="text-end">
-                              $
-                              {(
-                                Number(it.precio || 0) *
-                                  Number(it.cantidad || 0) || 0
-                              ).toLocaleString("es-CL")}
-                            </td>
-                          </tr>
-                        ))
+                        cartItems.map((it) => {
+                          const offer = getOfferForProduct(offersMap, it);
+                          const ef = getEffectivePrice(it, offer);
+                          const qty =
+                            Number(it.cantidad || it.quantity || it.qty || 1) ||
+                            1;
+                          return (
+                            <tr key={it.id}>
+                              <td>
+                                {it.imagen ? (
+                                  <img
+                                    src={it.imagen}
+                                    alt={it.nombre}
+                                    style={{
+                                      width: 64,
+                                      height: 48,
+                                      objectFit: "cover",
+                                      borderRadius: 4,
+                                    }}
+                                    onError={(e) =>
+                                      (e.target.src =
+                                        "/assets/productos/placeholder.png")
+                                    }
+                                  />
+                                ) : (
+                                  <div
+                                    style={{
+                                      width: 64,
+                                      height: 48,
+                                      background: "#f5f5f5",
+                                      borderRadius: 4,
+                                    }}
+                                  />
+                                )}
+                              </td>
+                              <td>{it.nombre}</td>
+
+                              {/* Precio: mostrar precio anterior (oldPrice) aquí */}
+                              <td className="text-end">
+                                {ef && ef.oldPrice
+                                  ? `$${Number(ef.oldPrice).toLocaleString(
+                                      "es-CL"
+                                    )}`
+                                  : `$${Number(it.precio || 0).toLocaleString(
+                                      "es-CL"
+                                    )}`}
+                              </td>
+
+                              {/* Oferta: mostrar % de descuento (o '-') */}
+                              <td className="text-center">
+                                {ef && ef.percent ? (
+                                  <Badge bg="danger">-{ef.percent}%</Badge>
+                                ) : (
+                                  <span className="text-muted">-</span>
+                                )}
+                              </td>
+
+                              <td className="text-center">{qty}</td>
+
+                              {/* Subtotal: usar precio efectivo (oferta si aplica) */}
+                              <td className="text-end">
+                                $
+                                {(
+                                  Number(ef.price || it.precio || 0) * qty
+                                ).toLocaleString("es-CL")}
+                              </td>
+                            </tr>
+                          );
+                        })
                       ) : (
                         <tr>
                           <td
-                            colSpan={5}
+                            colSpan={6}
                             className="text-center text-muted py-4"
                           >
                             Tu carrito está vacío.
@@ -730,7 +845,7 @@ export default function CheckoutPage() {
                       <div className="d-flex justify-content-between align-items-center mt-3">
                         <div className="fw-bold">Total</div>
                         <div className="h5 text-primary">
-                          ${Number(total || 0).toLocaleString("es-CL")}
+                          ${Number(totalEffective || 0).toLocaleString("es-CL")}
                         </div>
                       </div>
 
@@ -915,9 +1030,9 @@ export default function CheckoutPage() {
                   >
                     {isSubmitting
                       ? "Procesando..."
-                      : `Pagar ahora $ ${Number(total || 0).toLocaleString(
-                          "es-CL"
-                        )}`}
+                      : `Pagar ahora $ ${Number(
+                          totalEffective || 0
+                        ).toLocaleString("es-CL")}`}
                   </Button>
                 </div>
               </Form>

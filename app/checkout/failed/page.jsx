@@ -9,17 +9,86 @@ import {
   Table,
   Button,
   Badge,
+  Spinner,
 } from "react-bootstrap";
 import { useRouter, useSearchParams } from "next/navigation";
 
 /**
  * Página de pago fallido
- * Basada en la página de éxito pero con mensaje/estado de fallo.
- * Lee los detalles del último intento guardado en sessionStorage ('lastFailedOrder')
- * y los muestra. Incluye botones para volver a productos o al inicio.
+ * - Igual a la versión de éxito, pero para el intento fallido.
+ * - Carga ofertas (GET /api/offers + fallback localStorage.createdOffers) inline
+ *   para poder mostrar en la tabla:
+ *     * Precio: muestra el precio original (oldPrice) struck-through si aplica oferta
+ *     * Oferta: columna entre Precio y Cantidad que muestra % (badge) o '-' si no aplica
+ *     * Subtotal: calculado con el precio efectivo (precio de oferta si aplica)
  *
  * Pegar en: app/checkout/failed/page.jsx
  */
+
+const loadOffers = async () => {
+  let serverOffers = [];
+  try {
+    const res = await fetch("/api/offers").catch(() => null);
+    if (res && res.ok) serverOffers = await res.json().catch(() => []);
+  } catch (err) {
+    serverOffers = [];
+  }
+
+  let created = [];
+  try {
+    if (typeof window !== "undefined") {
+      const raw = localStorage.getItem("createdOffers");
+      created = raw ? JSON.parse(raw) : [];
+    }
+  } catch (err) {
+    created = [];
+  }
+
+  const map = new Map();
+  for (const o of serverOffers || []) {
+    const pid = String(o.productId ?? o.id ?? "").trim();
+    if (!pid) continue;
+    map.set(pid, { ...o, source: "server" });
+  }
+  for (const o of created || []) {
+    const pid = String(o.productId ?? "").trim();
+    if (!pid) continue;
+    map.set(pid, { ...o, source: "admin" });
+  }
+
+  return { offersArray: Array.from(map.values()), offersMap: map };
+};
+
+const getOfferForProduct = (offersMap, product) => {
+  if (!offersMap || !product) return null;
+  // support different id names that may exist in order item
+  const pid = String(
+    product.id ??
+      product.productId ??
+      product._id ??
+      product.sku ??
+      product.codigo ??
+      ""
+  ).trim();
+  return offersMap.get(pid) || null;
+};
+
+const getEffectivePrice = (product, offer) => {
+  const raw =
+    Number(product.precio ?? product.price ?? product.amount ?? 0) || 0;
+  if (!offer) return { oldPrice: null, price: raw, percent: 0 };
+  const oldPrice = Number(offer.oldPrice ?? raw) || raw;
+  let price = Number(offer.newPrice ?? 0);
+  let percent = Number(offer.percent ?? 0);
+
+  if (!price && percent && oldPrice)
+    price = Math.round(oldPrice * (1 - percent / 100));
+  if (!percent && price && oldPrice)
+    percent = Math.round(((oldPrice - price) / oldPrice) * 100);
+  if (!price || price <= 0) price = raw;
+
+  return { oldPrice: oldPrice || null, price, percent: percent || 0 };
+};
 
 export default function CheckoutFailedPage() {
   const router = useRouter();
@@ -27,6 +96,8 @@ export default function CheckoutFailedPage() {
   const orderIdParam = params ? params.get("order") : null;
 
   const [attempt, setAttempt] = useState(null);
+  const [offersMap, setOffersMap] = useState(new Map());
+  const [offersLoading, setOffersLoading] = useState(true);
 
   useEffect(() => {
     try {
@@ -44,6 +115,26 @@ export default function CheckoutFailedPage() {
       // ignore
     }
   }, [orderIdParam]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      setOffersLoading(true);
+      try {
+        const { offersMap: om } = await loadOffers();
+        if (!mounted) return;
+        setOffersMap(om);
+      } catch (err) {
+        console.warn("Error cargando ofertas:", err);
+        if (mounted) setOffersMap(new Map());
+      } finally {
+        if (mounted) setOffersLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const handleHome = () => {
     router.push("/");
@@ -98,48 +189,84 @@ export default function CheckoutFailedPage() {
                       <tr>
                         <th>Imagen</th>
                         <th>Nombre</th>
-                        <th>Precio</th>
-                        <th>Cantidad</th>
-                        <th>Subtotal</th>
+                        <th className="text-end">Precio</th>
+                        <th className="text-center">Oferta</th>
+                        <th className="text-center">Cantidad</th>
+                        <th className="text-end">Subtotal</th>
                       </tr>
                     </thead>
                     <tbody>
                       {Array.isArray(attempt.items) &&
                       attempt.items.length > 0 ? (
-                        attempt.items.map((it) => (
-                          <tr key={it.id}>
-                            <td style={{ width: 80 }}>
-                              {it.imagen ? (
-                                <img
-                                  src={it.imagen}
-                                  alt={it.nombre}
-                                  style={{
-                                    width: 64,
-                                    height: 48,
-                                    objectFit: "cover",
-                                  }}
-                                />
-                              ) : null}
-                            </td>
-                            <td>{it.nombre}</td>
-                            <td className="text-end">
-                              ${Number(it.precio || 0).toLocaleString("es-CL")}
-                            </td>
-                            <td className="text-center">
-                              {Number(it.cantidad || 0)}
-                            </td>
-                            <td className="text-end">
-                              $
-                              {(
-                                Number(it.precio || 0) *
-                                  Number(it.cantidad || 0) || 0
-                              ).toLocaleString("es-CL")}
-                            </td>
-                          </tr>
-                        ))
+                        attempt.items.map((it) => {
+                          const offer = getOfferForProduct(offersMap, it);
+                          const ef = getEffectivePrice(it, offer);
+                          const qty =
+                            Number(it.cantidad || it.quantity || it.qty || 1) ||
+                            1;
+
+                          return (
+                            <tr key={it.id}>
+                              <td style={{ width: 80 }}>
+                                {it.imagen ? (
+                                  <img
+                                    src={it.imagen}
+                                    alt={it.nombre}
+                                    style={{
+                                      width: 64,
+                                      height: 48,
+                                      objectFit: "cover",
+                                    }}
+                                  />
+                                ) : null}
+                              </td>
+                              <td>{it.nombre}</td>
+
+                              {/* Precio: mostrar precio original (oldPrice) strike-through cuando hay oferta */}
+                              <td className="text-end">
+                                {ef && ef.oldPrice ? (
+                                  <span
+                                    style={{
+                                      textDecoration: "line-through",
+                                      color: "#777",
+                                    }}
+                                  >
+                                    $
+                                    {Number(ef.oldPrice).toLocaleString(
+                                      "es-CL"
+                                    )}
+                                  </span>
+                                ) : (
+                                  `$${Number(it.precio || 0).toLocaleString(
+                                    "es-CL"
+                                  )}`
+                                )}
+                              </td>
+
+                              {/* Oferta: mostrar % de descuento */}
+                              <td className="text-center">
+                                {ef && ef.percent ? (
+                                  <Badge bg="danger">-{ef.percent}%</Badge>
+                                ) : (
+                                  <span className="text-muted">-</span>
+                                )}
+                              </td>
+
+                              <td className="text-center">{qty}</td>
+
+                              {/* Subtotal: usar precio efectivo (oferta si aplica) */}
+                              <td className="text-end">
+                                $
+                                {(
+                                  Number(ef.price || it.precio || 0) * qty || 0
+                                ).toLocaleString("es-CL")}
+                              </td>
+                            </tr>
+                          );
+                        })
                       ) : (
                         <tr>
-                          <td colSpan={5} className="text-center text-muted">
+                          <td colSpan={6} className="text-center text-muted">
                             No hay items en el intento
                           </td>
                         </tr>

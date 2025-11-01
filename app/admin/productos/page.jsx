@@ -1,7 +1,6 @@
 "use client";
 
 import { useEffect, useState, useMemo } from "react";
-import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Container,
@@ -13,16 +12,18 @@ import {
   Spinner,
   Alert,
   Modal,
+  Badge,
 } from "react-bootstrap";
 import { useAuth } from "../../context/AuthContext";
 
 /**
- * Admin Productos (actualizado)
- * - Usa la verificación de acceso igual que admin/productos/ofertas: spinner mientras auth se hidrata,
- *   espera breve antes de redirigir al login si user === null, y muestra el mismo
- *   mensaje de "Acceso denegado" cuando el usuario existe pero no es admin.
- *
- * El botón ahora envía al Home (app/page.jsx).
+ * Admin Productos (actualizado para mostrar descuentos)
+ * - Muestra descuento en la columna Precio: precio original (tachado) y debajo
+ *   el precio con oferta + badge con % cuando corresponda.
+ * - En el modal de detalle también muestra el precio tachado y el precio en oferta
+ *   con el badge.
+ * - No crea archivos nuevos; la lógica de ofertas está inline (lectura de /api/offers
+ *   + fallback a localStorage.createdOffers). Admin local (createdOffers) sobrescribe server.
  */
 
 function userIsAdmin(user) {
@@ -50,6 +51,63 @@ function userIsAdmin(user) {
   return false;
 }
 
+/* ---------- Helpers para ofertas (INLINE) ---------- */
+const loadOffers = async () => {
+  let serverOffers = [];
+  try {
+    const res = await fetch("/api/offers").catch(() => null);
+    if (res && res.ok) serverOffers = await res.json().catch(() => []);
+  } catch (err) {
+    serverOffers = [];
+  }
+
+  let created = [];
+  try {
+    if (typeof window !== "undefined") {
+      const raw = localStorage.getItem("createdOffers");
+      created = raw ? JSON.parse(raw) : [];
+    }
+  } catch (err) {
+    created = [];
+  }
+
+  const map = new Map();
+  for (const o of serverOffers || []) {
+    const pid = String(o.productId ?? o.id ?? "").trim();
+    if (!pid) continue;
+    map.set(pid, { ...o, source: "server" });
+  }
+  for (const o of created || []) {
+    const pid = String(o.productId ?? "").trim();
+    if (!pid) continue;
+    map.set(pid, { ...o, source: "admin" });
+  }
+  return { offersArray: Array.from(map.values()), offersMap: map };
+};
+
+const getOfferForProduct = (offersMap, product) => {
+  if (!offersMap || !product) return null;
+  const pid = String(product.id ?? product._id ?? product.sku ?? "").trim();
+  return offersMap.get(pid) || null;
+};
+
+const getEffectivePrice = (product, offer) => {
+  const raw = Number(product.precio ?? product.price ?? 0) || 0;
+  if (!offer) return { oldPrice: null, price: raw, percent: 0 };
+  const oldPrice = Number(offer.oldPrice ?? raw) || raw;
+  let price = Number(offer.newPrice ?? 0);
+  let percent = Number(offer.percent ?? 0);
+
+  if (!price && percent && oldPrice)
+    price = Math.round(oldPrice * (1 - percent / 100));
+  if (!percent && price && oldPrice)
+    percent = Math.round(((oldPrice - price) / oldPrice) * 100);
+  if (!price || price <= 0) price = raw;
+
+  return { oldPrice: oldPrice || null, price, percent: percent || 0 };
+};
+/* --------------------------------------------------- */
+
 export default function AdminProductosPage() {
   const { user } = useAuth();
   const router = useRouter();
@@ -62,7 +120,11 @@ export default function AdminProductosPage() {
   const [detailProduct, setDetailProduct] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
 
-  // While auth may still be hydrating, we avoid redirecting immediately.
+  // offers state
+  const [offersMap, setOffersMap] = useState(new Map());
+  const [offersLoading, setOffersLoading] = useState(true);
+
+  // While auth may still be hydrating, avoid redirecting immediately.
   useEffect(() => {
     if (typeof user === "undefined") return;
     if (user === null) {
@@ -79,20 +141,33 @@ export default function AdminProductosPage() {
     const load = async () => {
       setLoading(true);
       setError("");
+      setOffersLoading(true);
       try {
-        const res = await fetch("/api/productos");
-        if (!res.ok) {
-          const data = await res.json().catch(() => ({}));
+        const [resProd] = await Promise.all([
+          fetch("/api/productos"),
+          // keep offers fetch inside loadOffers below (we call it afterwards)
+        ]);
+
+        if (!resProd.ok) {
+          const data = await resProd.json().catch(() => ({}));
           throw new Error(data.error || "Error al obtener productos");
         }
-        const data = await res.json().catch(() => []);
+        const dataProd = await resProd.json().catch(() => []);
+
+        // load offers (server + local)
+        const { offersMap: om } = await loadOffers();
+
         if (!mounted) return;
-        setProductos(Array.isArray(data) ? data : []);
+        setProductos(Array.isArray(dataProd) ? dataProd : []);
+        setOffersMap(om);
       } catch (err) {
         if (!mounted) return;
         setError(err.message || "Error desconocido");
       } finally {
-        if (mounted) setLoading(false);
+        if (mounted) {
+          setLoading(false);
+          setOffersLoading(false);
+        }
       }
     };
     load();
@@ -158,7 +233,7 @@ export default function AdminProductosPage() {
     );
   }
 
-  // If logged but not admin: show unified access denied UI (Home link)
+  // If logged but not admin: show unified access denied UI
   if (!isAdmin) {
     return (
       <Container className="py-5">
@@ -168,9 +243,9 @@ export default function AdminProductosPage() {
         </Alert>
 
         <div>
-          <Link href="/" className="btn btn-secondary">
+          <a href="/" className="btn btn-secondary">
             Volver al inicio
-          </Link>
+          </a>
         </div>
       </Container>
     );
@@ -234,64 +309,105 @@ export default function AdminProductosPage() {
                     </tr>
                   </thead>
                   <tbody>
-                    {productos.map((p, idx) => (
-                      <tr key={p.id ?? p._id ?? idx}>
-                        <td style={{ width: 40 }}>{idx + 1}</td>
-                        <td style={{ width: 90 }}>
-                          {p.imagen ? (
-                            <img
-                              src={p.imagen}
-                              alt={p.nombre}
-                              style={{
-                                width: 64,
-                                height: 64,
-                                objectFit: "cover",
-                                borderRadius: 6,
-                                background: "#f5f5f5",
-                              }}
-                            />
-                          ) : (
-                            <div
-                              style={{
-                                width: 64,
-                                height: 64,
-                                background: "#f5f5f5",
-                                borderRadius: 6,
-                              }}
-                            />
-                          )}
-                        </td>
-                        <td>{p.nombre || "-"}</td>
-                        <td>{p.atributo || p.categoria || "-"}</td>
-                        <td>
-                          {typeof p.precio !== "undefined"
-                            ? `$ ${p.precio}`
-                            : "-"}
-                        </td>
-                        <td>
-                          {typeof p.stock !== "undefined" ? p.stock : "-"}
-                        </td>
-                        <td className="text-center">
-                          <Button
-                            variant="outline-secondary"
-                            size="sm"
-                            className="me-2"
-                            onClick={() => openDetail(p)}
-                          >
-                            Ver
-                          </Button>
+                    {productos.map((p, idx) => {
+                      const offer = getOfferForProduct(offersMap, p);
+                      const ef = getEffectivePrice(p, offer);
+                      return (
+                        <tr key={p.id ?? p._id ?? idx}>
+                          <td style={{ width: 40 }}>{idx + 1}</td>
+                          <td style={{ width: 90 }}>
+                            {p.imagen ? (
+                              <img
+                                src={p.imagen}
+                                alt={p.nombre}
+                                style={{
+                                  width: 64,
+                                  height: 64,
+                                  objectFit: "cover",
+                                  borderRadius: 6,
+                                  background: "#f5f5f5",
+                                }}
+                              />
+                            ) : (
+                              <div
+                                style={{
+                                  width: 64,
+                                  height: 64,
+                                  background: "#f5f5f5",
+                                  borderRadius: 6,
+                                }}
+                              />
+                            )}
+                          </td>
+                          <td>{p.nombre || "-"}</td>
+                          <td>{p.atributo || p.categoria || "-"}</td>
 
-                          <Button
-                            variant="danger"
-                            size="sm"
-                            onClick={() => handleDelete(p.id)}
-                            disabled={deletingId === p.id}
-                          >
-                            {deletingId === p.id ? "Eliminando…" : "Eliminar"}
-                          </Button>
-                        </td>
-                      </tr>
-                    ))}
+                          {/* Precio: mostrar precio original (tachado) y debajo el precio de oferta + badge */}
+                          <td>
+                            {ef && ef.oldPrice ? (
+                              <div>
+                                <div>
+                                  <span
+                                    style={{
+                                      textDecoration: "line-through",
+                                      color: "#777",
+                                    }}
+                                  >
+                                    $
+                                    {Number(ef.oldPrice).toLocaleString(
+                                      "es-CL"
+                                    )}
+                                  </span>
+                                </div>
+                                <div className="d-flex align-items-center mt-1">
+                                  <div
+                                    style={{
+                                      color: "#0d6efd",
+                                      fontWeight: 700,
+                                      marginRight: 8,
+                                    }}
+                                  >
+                                    ${Number(ef.price).toLocaleString("es-CL")}
+                                  </div>
+                                  {ef.percent ? (
+                                    <Badge bg="danger">-{ef.percent}%</Badge>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ) : (
+                              <div>
+                                {typeof p.precio !== "undefined"
+                                  ? `$ ${p.precio}`
+                                  : "-"}
+                              </div>
+                            )}
+                          </td>
+
+                          <td>
+                            {typeof p.stock !== "undefined" ? p.stock : "-"}
+                          </td>
+                          <td className="text-center">
+                            <Button
+                              variant="outline-secondary"
+                              size="sm"
+                              className="me-2"
+                              onClick={() => openDetail(p)}
+                            >
+                              Ver
+                            </Button>
+
+                            <Button
+                              variant="danger"
+                              size="sm"
+                              onClick={() => handleDelete(p.id)}
+                              disabled={deletingId === p.id}
+                            >
+                              {deletingId === p.id ? "Eliminando…" : "Eliminar"}
+                            </Button>
+                          </td>
+                        </tr>
+                      );
+                    })}
                   </tbody>
                 </Table>
               )}
@@ -393,18 +509,60 @@ export default function AdminProductosPage() {
                             detailProduct.categoria ||
                             "-"}
                         </p>
+
+                        {/* Precio en modal: mostrar tachado + oferta si existe */}
                         <p>
                           <strong>Precio:</strong>{" "}
-                          {typeof detailProduct.precio !== "undefined"
-                            ? `$ ${detailProduct.precio}`
-                            : "-"}
+                          {(() => {
+                            const offer = getOfferForProduct(
+                              offersMap,
+                              detailProduct
+                            );
+                            const ef = getEffectivePrice(detailProduct, offer);
+                            if (ef && ef.oldPrice) {
+                              return (
+                                <>
+                                  <span
+                                    style={{
+                                      textDecoration: "line-through",
+                                      color: "#777",
+                                      marginRight: 8,
+                                    }}
+                                  >
+                                    $
+                                    {Number(ef.oldPrice).toLocaleString(
+                                      "es-CL"
+                                    )}
+                                  </span>
+                                  <span
+                                    style={{
+                                      color: "#0d6efd",
+                                      fontWeight: 700,
+                                    }}
+                                  >
+                                    ${Number(ef.price).toLocaleString("es-CL")}
+                                  </span>
+                                  {ef.percent ? (
+                                    <Badge bg="danger" className="ms-2">
+                                      -{ef.percent}%
+                                    </Badge>
+                                  ) : null}
+                                </>
+                              );
+                            }
+                            return typeof detailProduct.precio !== "undefined"
+                              ? `$ ${detailProduct.precio}`
+                              : "-";
+                          })()}
                         </p>
+
                         <p>
                           <strong>Stock:</strong>{" "}
                           {typeof detailProduct.stock !== "undefined"
                             ? detailProduct.stock
                             : "-"}
                         </p>
+
                         <p>
                           <strong>Descripción:</strong>
                         </p>
