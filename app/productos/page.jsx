@@ -1,223 +1,271 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import {
   Container,
   Row,
   Col,
   Card,
   Button,
+  Spinner,
+  Alert,
   Badge,
-  Pagination,
 } from "react-bootstrap";
-import Link from "next/link";
-import { getProductos } from "../../lib/products"; // <- CORRECTO desde app/productos -> ../../lib/products
-import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
+import { useCart } from "../context/CartContext";
 
-const ITEMS_PER_PAGE = 40;
+/**
+ * Productos list (app/productos/page.jsx)
+ * - Carga productos y ofertas (server + localStorage fallback).
+ * - Muestra en cada tarjeta un pequeño cartel de oferta cuando aplica:
+ *    * precio original tachado, precio oferta destacado y porcentaje.
+ * - Reutiliza una lógica simple para obtener el precio efectivo de venta.
+ */
 
-const ProductImage = ({ src, alt, style }) => {
-  const [imgSrc, setImgSrc] = useState(src);
-  useEffect(() => setImgSrc(src), [src]);
-  const handleError = () =>
-    setImgSrc(
-      "https://via.placeholder.com/300x200/cccccc/969696?text=Imagen+No+Disponible"
-    );
-  return (
-    <Card.Img
-      variant="top"
-      src={imgSrc}
-      alt={alt}
-      style={style}
-      onError={handleError}
-    />
-  );
+function normalizeId(v) {
+  return String(v ?? "").trim();
+}
+
+const safeSrc = (s) => {
+  if (!s) return "/assets/productos/placeholder.png";
+  try {
+    if (String(s).startsWith("data:")) return s;
+    if (!String(s).match(/^https?:\/\//i) && typeof window !== "undefined") {
+      return new URL(s, window.location.origin).href;
+    }
+    return String(s);
+  } catch {
+    return String(s);
+  }
 };
 
 export default function ProductosPage() {
-  const { addToCart } = useCart();
   const { user } = useAuth();
+  const cart = useCart();
+  const [productos, setProductos] = useState([]);
+  const [serverOffers, setServerOffers] = useState([]);
+  const [createdOffers, setCreatedOffers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Cargar productos desde el wrapper (síncrono)
-  const productos = useMemo(() => {
-    try {
-      return Array.isArray(getProductos()) ? getProductos() : [];
-    } catch {
-      return [];
-    }
+  // Load data
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [pRes, oRes] = await Promise.all([
+          fetch("/api/productos"),
+          fetch("/api/offers").catch(() => null),
+        ]);
+
+        if (!pRes.ok) {
+          const data = await pRes.json().catch(() => ({}));
+          throw new Error(data.error || "Error al cargar productos");
+        }
+        const prodData = await pRes.json().catch(() => []);
+        let offersData = [];
+        if (oRes && oRes.ok) {
+          offersData = await oRes.json().catch(() => []);
+        }
+
+        const stored =
+          typeof window !== "undefined"
+            ? localStorage.getItem("createdOffers")
+            : null;
+        const parsed = stored ? JSON.parse(stored) : [];
+
+        if (!mounted) return;
+        setProductos(Array.isArray(prodData) ? prodData : []);
+        setServerOffers(Array.isArray(offersData) ? offersData : []);
+        setCreatedOffers(Array.isArray(parsed) ? parsed : []);
+      } catch (err) {
+        console.error(err);
+        if (!mounted) return;
+        setError(err.message || "Error al cargar datos");
+        setProductos([]);
+        setServerOffers([]);
+        setCreatedOffers([]);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
-  const totalItems = productos.length;
-  const totalPages = Math.max(1, Math.ceil(totalItems / ITEMS_PER_PAGE));
-
-  const [page, setPage] = useState(1);
-
-  useEffect(() => {
-    if (page > totalPages) setPage(totalPages);
-  }, [totalPages, page]);
-
-  // SÓLO slice de los 40 items de la página actual (no acumulación)
-  const currentItems = useMemo(() => {
-    const start = (page - 1) * ITEMS_PER_PAGE;
-    const end = start + ITEMS_PER_PAGE;
-    return productos.slice(start, end);
-  }, [productos, page]);
-
-  // scroll to top al cambiar de página
-  useEffect(() => {
-    if (typeof window !== "undefined")
-      window.scrollTo({ top: 0, behavior: "smooth" });
-  }, [page]);
-
-  const handleAddToCart = (producto) => {
-    if (!user) {
-      window.location.href = "/login";
-      return;
+  // merge offers (createdOffers override serverOffers for same productId)
+  const offersMap = useMemo(() => {
+    const map = new Map();
+    for (const o of serverOffers || []) {
+      const pid = normalizeId(
+        o.productId ?? o.id ?? (o.product && (o.product.id ?? o.product._id))
+      );
+      if (!pid) continue;
+      map.set(pid, { ...o, source: "server" });
     }
-    addToCart(producto, 1);
-    alert(`${producto.nombre} agregado al carrito`);
+    for (const o of createdOffers || []) {
+      const pid = normalizeId(o.productId ?? "");
+      if (!pid) continue;
+      map.set(pid, { ...o, source: "admin" });
+    }
+    return map;
+  }, [serverOffers, createdOffers]);
+
+  const computeOfferFor = (product) => {
+    const pid = normalizeId(product.id ?? product._id ?? product.sku);
+    const o = offersMap.get(pid);
+    if (!o) return null;
+    const oldPrice = Number(o.oldPrice ?? product.precio ?? product.price ?? 0);
+    const newPrice = Number(o.newPrice ?? 0);
+    const percent = Number(
+      o.percent ??
+        (oldPrice && newPrice
+          ? Math.round(((oldPrice - newPrice) / oldPrice) * 100)
+          : 0)
+    );
+    if (!newPrice || newPrice <= 0) return null;
+    return { oldPrice, newPrice, percent, source: o.source || "server" };
   };
 
-  const getPageItems = () => {
-    const pages = [];
-    const maxButtons = 7;
-    let start = Math.max(1, page - 3);
-    let end = Math.min(totalPages, page + 3);
+  if (loading) {
+    return (
+      <Container className="py-5 text-center">
+        <Spinner animation="border" role="status" />
+      </Container>
+    );
+  }
 
-    if (page <= 4) {
-      start = 1;
-      end = Math.min(totalPages, maxButtons);
-    } else if (page + 3 >= totalPages) {
-      end = totalPages;
-      start = Math.max(1, totalPages - (maxButtons - 1));
+  if (error) {
+    return (
+      <Container className="py-5">
+        <Alert variant="danger">{error}</Alert>
+      </Container>
+    );
+  }
+
+  if (!productos || productos.length === 0) {
+    return (
+      <Container className="py-5">
+        <Alert variant="info">No hay productos para mostrar.</Alert>
+      </Container>
+    );
+  }
+
+  const handleAddToCart = (product, effectivePrice) => {
+    try {
+      if (cart && typeof cart.addToCart === "function") {
+        const item = { ...product, precio: effectivePrice };
+        cart.addToCart(item, 1);
+        alert(`¡${product.nombre} agregado al carrito!`);
+      } else {
+        // fallback: dispatch event
+        const e = new CustomEvent("add-to-cart", {
+          detail: { product, price: effectivePrice, qty: 1 },
+        });
+        window.dispatchEvent(e);
+      }
+    } catch (err) {
+      console.warn("addToCart error", err);
     }
-    for (let p = start; p <= end; p++) pages.push(p);
-    return pages;
   };
 
   return (
-    <Container className="py-4">
-      <div className="text-center mb-5">
-        <h1 className="display-5 fw-bold text-dark mb-3">Nuestros Productos</h1>
-        <p className="lead text-muted">
-          Descubre la mejor selección de productos gaming
-        </p>
-      </div>
-
-      <div className="d-flex justify-content-between align-items-center mb-3">
-        <div>
-          <strong>
-            Mostrando {Math.min((page - 1) * ITEMS_PER_PAGE + 1, totalItems)} -{" "}
-            {Math.min(page * ITEMS_PER_PAGE, totalItems)}
-          </strong>{" "}
-          de {totalItems} productos
-        </div>
-
-        <div>
-          <Pagination className="mb-0">
-            <Pagination.First
-              onClick={() => setPage(1)}
-              disabled={page === 1}
-            />
-            <Pagination.Prev
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-            />
-            {getPageItems().map((p) => (
-              <Pagination.Item
-                key={p}
-                active={p === page}
-                onClick={() => setPage(p)}
-              >
-                {p}
-              </Pagination.Item>
-            ))}
-            <Pagination.Next
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-            />
-            <Pagination.Last
-              onClick={() => setPage(totalPages)}
-              disabled={page === totalPages}
-            />
-          </Pagination>
-        </div>
-      </div>
-
-      <Row className="g-4">
-        {currentItems.map((producto) => (
-          <Col key={producto.id} sm={6} md={4} lg={3}>
-            <Card className="h-100 shadow-sm">
-              <ProductImage
-                src={producto.imagen}
-                alt={producto.nombre}
-                style={{ height: 180, objectFit: "contain", padding: 12 }}
-              />
-              <Card.Body className="d-flex flex-column">
-                <div className="d-flex justify-content-between align-items-start mb-2">
-                  <h5 className="mb-0">{producto.nombre}</h5>
-                  <Badge bg="secondary">{producto.atributo}</Badge>
+    <Container className="py-5">
+      <Row xs={1} md={3} lg={4} className="g-4">
+        {productos.map((p) => {
+          const offer = computeOfferFor(p);
+          const displayPrice = offer
+            ? offer.newPrice
+            : p.precio ?? p.price ?? 0;
+          return (
+            <Col key={p.id ?? p._id ?? p.sku}>
+              <Card className="h-100 shadow-sm">
+                <div style={{ padding: 18, textAlign: "center" }}>
+                  <img
+                    src={safeSrc(
+                      p.imagen ||
+                        (p.miniaturas && p.miniaturas[0]) ||
+                        "/assets/productos/placeholder.png"
+                    )}
+                    alt={p.nombre}
+                    style={{ width: "100%", height: 180, objectFit: "contain" }}
+                    onError={(e) =>
+                      (e.target.src = "/assets/productos/placeholder.png")
+                    }
+                  />
                 </div>
-                <p className="text-primary fw-bold mb-3">
-                  ${Number(producto.precio).toLocaleString("es-CL")}
-                </p>
 
-                <div className="mt-auto d-grid gap-2">
-                  <Link
-                    href={`/productos/${producto.id}`}
-                    className="btn btn-outline-dark btn-sm"
-                  >
-                    Ver Detalles
-                  </Link>
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    onClick={() => handleAddToCart(producto)}
-                  >
-                    Agregar al Carrito
-                  </Button>
-                </div>
-              </Card.Body>
-            </Card>
-          </Col>
-        ))}
+                <Card.Body className="d-flex flex-column">
+                  <div className="mb-2 d-flex justify-content-between align-items-start">
+                    <div>
+                      <Card.Title style={{ fontSize: 16 }}>
+                        {p.nombre}
+                      </Card.Title>
+                      <small className="text-muted">
+                        {p.atributo || p.categoria}
+                      </small>
+                    </div>
+
+                    {offer ? (
+                      <Badge bg="danger" className="text-wrap">
+                        -{offer.percent}%
+                      </Badge>
+                    ) : null}
+                  </div>
+
+                  <div className="mb-3">
+                    {offer ? (
+                      <div>
+                        <div>
+                          <span
+                            style={{
+                              textDecoration: "line-through",
+                              color: "#777",
+                              marginRight: 8,
+                            }}
+                          >
+                            ${Number(offer.oldPrice).toLocaleString("es-CL")}
+                          </span>
+                          <span style={{ color: "#0d6efd", fontWeight: 700 }}>
+                            ${Number(offer.newPrice).toLocaleString("es-CL")}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ color: "#0d6efd", fontWeight: 700 }}>
+                        $
+                        {Number(p.precio ?? p.price ?? 0).toLocaleString(
+                          "es-CL"
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-auto d-grid">
+                    <Link
+                      href={`/productos/${p.id ?? p._id ?? p.sku}`}
+                      className="btn btn-outline-dark btn-sm mb-2"
+                    >
+                      Ver Detalles
+                    </Link>
+                    <Button
+                      variant="primary"
+                      onClick={() => handleAddToCart(p, displayPrice)}
+                    >
+                      Agregar al Carrito
+                    </Button>
+                  </div>
+                </Card.Body>
+              </Card>
+            </Col>
+          );
+        })}
       </Row>
-
-      <div className="d-flex justify-content-between align-items-center mt-4">
-        <div>
-          Página {page} de {totalPages}
-        </div>
-        <div>
-          <Pagination className="mb-0">
-            <Pagination.First
-              onClick={() => setPage(1)}
-              disabled={page === 1}
-            />
-            <Pagination.Prev
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-            />
-            {getPageItems().map((p) => (
-              <Pagination.Item
-                key={p}
-                active={p === page}
-                onClick={() => setPage(p)}
-              >
-                {p}
-              </Pagination.Item>
-            ))}
-            <Pagination.Next
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-            />
-            <Pagination.Last
-              onClick={() => setPage(totalPages)}
-              disabled={page === totalPages}
-            />
-          </Pagination>
-        </div>
-      </div>
     </Container>
   );
 }
