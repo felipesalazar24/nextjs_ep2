@@ -1,28 +1,35 @@
-'use client';
+"use client";
 
-import { Container, Row, Col, Card, Button, Badge, Spinner } from 'react-bootstrap';
-import Link from 'next/link';
-import { useState, useEffect } from 'react';
-import { useCart } from '../context/CartContext';
+import React, { useEffect, useMemo, useState } from "react";
+import {
+  Container,
+  Row,
+  Col,
+  Card,
+  Button,
+  Badge,
+  Pagination,
+} from "react-bootstrap";
+import Link from "next/link";
+import { getProductos } from "../../lib/products"; // <- CORRECTO desde app/productos -> ../../lib/products
+import { useCart } from "../context/CartContext";
+import { useAuth } from "../context/AuthContext";
 
-// Componente para imagen
-const ProductImage = (props) => {
-  const [imgSrc, setImgSrc] = useState(props.src);
+const ITEMS_PER_PAGE = 40;
 
-  const handleError = () => {
-    setImgSrc('https://via.placeholder.com/300x200/cccccc/969696?text=Imagen+No+Disponible');
-  };
-
-  useEffect(() => {
-    setImgSrc(props.src);
-  }, [props.src]);
-
+const ProductImage = ({ src, alt, style }) => {
+  const [imgSrc, setImgSrc] = useState(src);
+  useEffect(() => setImgSrc(src), [src]);
+  const handleError = () =>
+    setImgSrc(
+      "https://via.placeholder.com/300x200/cccccc/969696?text=Imagen+No+Disponible"
+    );
   return (
     <Card.Img
       variant="top"
       src={imgSrc}
-      alt={props.alt}
-      style={props.style}
+      alt={alt}
+      style={style}
       onError={handleError}
     />
   );
@@ -30,136 +37,187 @@ const ProductImage = (props) => {
 
 export default function ProductosPage() {
   const { addToCart } = useCart();
+  const { user } = useAuth();
 
-  const [productos, setProductos] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState(null);
-
-  const getCategoryVariant = (atributo) => {
-    const variants = {
-      'Mouse': 'primary',
-      'Teclado': 'success',
-      'Audifono': 'warning',
-      'Monitor': 'info'
-    };
-    return variants[atributo] || 'secondary';
-  };
-
-  const handleAddToCart = (producto) => {
-    addToCart(producto, 1);
-    alert(`¡${producto.nombre} agregado al carrito!`);
-  };
-
-  useEffect(() => {
-    let mounted = true;
-    fetch('/api/productos')
-      .then((res) => {
-        if (!res.ok) throw new Error('Error al cargar productos');
-        return res.json();
-      })
-      .then((data) => {
-        if (mounted) setProductos(Array.isArray(data) ? data : []);
-      })
-      .catch((err) => {
-        console.error(err);
-        if (mounted) setError(err.message || 'Error');
-      })
-      .finally(() => {
-        if (mounted) setLoading(false);
-      });
-    return () => { mounted = false; };
+  // Cargar productos desde el wrapper (síncrono)
+  const productos = useMemo(() => {
+    try {
+      return Array.isArray(getProductos()) ? getProductos() : [];
+    } catch {
+      return [];
+    }
   }, []);
 
-  if (loading) {
-    return (
-      <Container className="py-4 text-center">
-        <Spinner animation="border" role="status" />
-      </Container>
-    );
-  }
+  const totalItems = productos.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / ITEMS_PER_PAGE));
 
-  if (error) {
-    return (
-      <Container className="py-4 text-center">
-        <h2>Error al cargar productos</h2>
-        <p className="text-muted">{error}</p>
-      </Container>
-    );
-  }
+  const [page, setPage] = useState(1);
+
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages);
+  }, [totalPages, page]);
+
+  // SÓLO slice de los 40 items de la página actual (no acumulación)
+  const currentItems = useMemo(() => {
+    const start = (page - 1) * ITEMS_PER_PAGE;
+    const end = start + ITEMS_PER_PAGE;
+    return productos.slice(start, end);
+  }, [productos, page]);
+
+  // scroll to top al cambiar de página
+  useEffect(() => {
+    if (typeof window !== "undefined")
+      window.scrollTo({ top: 0, behavior: "smooth" });
+  }, [page]);
+
+  const handleAddToCart = (producto) => {
+    if (!user) {
+      window.location.href = "/login";
+      return;
+    }
+    addToCart(producto, 1);
+    alert(`${producto.nombre} agregado al carrito`);
+  };
+
+  const getPageItems = () => {
+    const pages = [];
+    const maxButtons = 7;
+    let start = Math.max(1, page - 3);
+    let end = Math.min(totalPages, page + 3);
+
+    if (page <= 4) {
+      start = 1;
+      end = Math.min(totalPages, maxButtons);
+    } else if (page + 3 >= totalPages) {
+      end = totalPages;
+      start = Math.max(1, totalPages - (maxButtons - 1));
+    }
+    for (let p = start; p <= end; p++) pages.push(p);
+    return pages;
+  };
 
   return (
     <Container className="py-4">
       <div className="text-center mb-5">
         <h1 className="display-5 fw-bold text-dark mb-3">Nuestros Productos</h1>
         <p className="lead text-muted">
-          Descubre la mejor selección de productos gaming para mejorar tu experiencia
+          Descubre la mejor selección de productos gaming
         </p>
       </div>
 
-      <Row className="g-4">
-        {productos.map(producto => (
-          <Col key={producto.id} xs={12} sm={6} md={4} lg={3}>
-            <Card className="h-100 shadow-sm border-0 product-card">
-              <div className="position-relative">
-                <ProductImage
-                  src={producto.imagen}
-                  alt={producto.nombre}
-                  style={{
-                    height: '200px',
-                    objectFit: 'cover',
-                    padding: '15px'
-                  }}
-                />
-                <Badge
-                  bg={getCategoryVariant(producto.atributo)}
-                  className="position-absolute top-0 start-0 m-2"
-                >
-                  {producto.atributo}
-                </Badge>
-              </div>
+      <div className="d-flex justify-content-between align-items-center mb-3">
+        <div>
+          <strong>
+            Mostrando {Math.min((page - 1) * ITEMS_PER_PAGE + 1, totalItems)} -{" "}
+            {Math.min(page * ITEMS_PER_PAGE, totalItems)}
+          </strong>{" "}
+          de {totalItems} productos
+        </div>
 
+        <div>
+          <Pagination className="mb-0">
+            <Pagination.First
+              onClick={() => setPage(1)}
+              disabled={page === 1}
+            />
+            <Pagination.Prev
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+            />
+            {getPageItems().map((p) => (
+              <Pagination.Item
+                key={p}
+                active={p === page}
+                onClick={() => setPage(p)}
+              >
+                {p}
+              </Pagination.Item>
+            ))}
+            <Pagination.Next
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+            />
+            <Pagination.Last
+              onClick={() => setPage(totalPages)}
+              disabled={page === totalPages}
+            />
+          </Pagination>
+        </div>
+      </div>
+
+      <Row className="g-4">
+        {currentItems.map((producto) => (
+          <Col key={producto.id} sm={6} md={4} lg={3}>
+            <Card className="h-100 shadow-sm">
+              <ProductImage
+                src={producto.imagen}
+                alt={producto.nombre}
+                style={{ height: 180, objectFit: "contain", padding: 12 }}
+              />
               <Card.Body className="d-flex flex-column">
-                <Card.Title className="h6 mb-2">
+                <div className="d-flex justify-content-between align-items-start mb-2">
+                  <h5 className="mb-0">{producto.nombre}</h5>
+                  <Badge bg="secondary">{producto.atributo}</Badge>
+                </div>
+                <p className="text-primary fw-bold mb-3">
+                  ${Number(producto.precio).toLocaleString("es-CL")}
+                </p>
+
+                <div className="mt-auto d-grid gap-2">
                   <Link
                     href={`/productos/${producto.id}`}
-                    className="text-dark text-decoration-none"
+                    className="btn btn-outline-dark btn-sm"
                   >
-                    {producto.nombre}
+                    Ver Detalles
                   </Link>
-                </Card.Title>
-
-                <Card.Text className="text-muted small flex-grow-1">
-                  {(producto.descripcion ?? "").substring(0, 100)}...
-                </Card.Text>
-
-                <div className="mt-auto">
-                  <div className="d-flex justify-content-between align-items-center mb-3">
-                    <span className="h5 text-primary mb-0">
-                      ${ typeof producto.precio === 'number' ? producto.precio.toLocaleString('es-CL') : producto.precio }
-                    </span>
-                  </div>
-
-                  <div className="d-grid gap-2">
-                    <Link
-                      href={`/productos/${producto.id}`}
-                      className="btn btn-outline-dark btn-sm"
-                    >
-                      Ver Detalles
-                    </Link>
-                    <Button
-                      variant="primary"
-                      size="sm"
-                      onClick={() => handleAddToCart(producto)}
-                    >
-                      Agregar al Carrito
-                    </Button>
-                  </div>
+                  <Button
+                    variant="primary"
+                    size="sm"
+                    onClick={() => handleAddToCart(producto)}
+                  >
+                    Agregar al Carrito
+                  </Button>
                 </div>
               </Card.Body>
             </Card>
           </Col>
         ))}
       </Row>
+
+      <div className="d-flex justify-content-between align-items-center mt-4">
+        <div>
+          Página {page} de {totalPages}
+        </div>
+        <div>
+          <Pagination className="mb-0">
+            <Pagination.First
+              onClick={() => setPage(1)}
+              disabled={page === 1}
+            />
+            <Pagination.Prev
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+            />
+            {getPageItems().map((p) => (
+              <Pagination.Item
+                key={p}
+                active={p === page}
+                onClick={() => setPage(p)}
+              >
+                {p}
+              </Pagination.Item>
+            ))}
+            <Pagination.Next
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+            />
+            <Pagination.Last
+              onClick={() => setPage(totalPages)}
+              disabled={page === totalPages}
+            />
+          </Pagination>
+        </div>
+      </div>
     </Container>
   );
 }

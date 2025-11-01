@@ -1,206 +1,182 @@
 // app/carrito/page.jsx
-'use client';
+// Reemplaza el archivo existente en: <repo-root>/app/carrito/page.jsx
+"use client";
 
-import { Container, Row, Col, Card, Button, Table, Badge, Alert } from 'react-bootstrap';
-import Link from 'next/link';
-import { useCart } from '../context/CartContext';
+import React, { useMemo } from "react";
+import Link from "next/link";
+import {
+  Container,
+  Row,
+  Col,
+  Card,
+  Button,
+  Form,
+  Alert,
+} from "react-bootstrap";
+import { useCart } from "../context/CartContext"; // app/carrito -> app/context/CartContext.jsx
+import { useAuth } from "../context/AuthContext"; // para comprobar usuario y ofrecer login
 
 export default function CarritoPage() {
-    const { cart, removeFromCart, updateQuantity, clearCart, getTotal, getTotalItems } = useCart();
+  const { user } = useAuth();
+  const {
+    items,
+    updateQuantity,
+    removeFromCart,
+    clearCart,
+    getCount,
+    lastError,
+    clearError,
+  } = useCart();
 
-    console.log('📦 Carrito actual:', cart);
-    console.log('🔢 Total items:', getTotalItems());
+  const total = useMemo(
+    () =>
+      (items || []).reduce((sum, it) => {
+        const precio = Number(it.precio || 0);
+        const cantidad = Number(it.cantidad || 0);
+        return sum + precio * cantidad;
+      }, 0),
+    [items]
+  );
 
-    const handleQuantityChange = (productId, newQuantity) => {
-        if (newQuantity < 1) {
-            removeFromCart(productId);
-        } else {
-            updateQuantity(productId, newQuantity);
-        }
-    };
-
-    const handleCheckout = () => {
-        if (cart.length === 0) {
-            alert('El carrito está vacío');
-            return;
-        }
-        alert('¡Redirigiendo al checkout!');
-        // Aquí irá la navegación al checkout
-    };
-
-    if (cart.length === 0) {
-        return (
-            <Container className="py-5">
-                <Row className="justify-content-center">
-                    <Col md={8} className="text-center">
-                        <div className="mb-4">
-                            <h1 className="display-4">🛒</h1>
-                            <h2>Tu carrito está vacío</h2>
-                            <p className="text-muted">Agrega algunos productos increíbles a tu carrito</p>
-                        </div>
-                        <Link href="/productos" className="btn btn-primary btn-lg">
-                            Descubrir Productos
-                        </Link>
-                    </Col>
-                </Row>
-            </Container>
-        );
-    }
-
+  // Si no hay usuario: no permitimos usar el carrito
+  if (!user) {
     return (
-        <Container className="py-4">
-            <Row>
-                <Col>
-                    <h1 className="h2 mb-4">Carrito de Compras</h1>
-                </Col>
-            </Row>
-
-            <Row>
-                {/* Lista de productos */}
-                <Col lg={8}>
-                    <Card className="shadow-sm">
-                        <Card.Header className="bg-light">
-                            <div className="d-flex justify-content-between align-items-center">
-                                <h5 className="mb-0">Productos en el carrito</h5>
-                                <Badge bg="primary">{getTotalItems()} items</Badge>
-                            </div>
-                        </Card.Header>
-                        <Card.Body className="p-0">
-                            <Table responsive className="mb-0">
-                                <thead className="bg-light">
-                                    <tr>
-                                        <th>Producto</th>
-                                        <th>Precio</th>
-                                        <th>Cantidad</th>
-                                        <th>Subtotal</th>
-                                        <th>Acciones</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {cart.map(item => (
-                                        <tr key={item.id}>
-                                            <td>
-                                                <div className="d-flex align-items-center">
-                                                    <img 
-                                                        src={item.imagen} 
-                                                        alt={item.nombre}
-                                                        className="img-thumbnail me-3"
-                                                        style={{ width: '60px', height: '60px', objectFit: 'cover' }}
-                                                        onError={(e) => {
-                                                            e.target.src = 'https://via.placeholder.com/60x60/cccccc/969696?text=Imagen';
-                                                        }}
-                                                    />
-                                                    <div>
-                                                        <h6 className="mb-1">{item.nombre}</h6>
-                                                        <Badge bg="secondary" className="small">{item.atributo}</Badge>
-                                                    </div>
-                                                </div>
-                                            </td>
-                                            <td className="align-middle">
-                                                <strong>${item.precio.toLocaleString('es-CL')}</strong>
-                                            </td>
-                                            <td className="align-middle">
-                                                <div className="d-flex align-items-center">
-                                                    <Button 
-                                                        variant="outline-secondary" 
-                                                        size="sm"
-                                                        onClick={() => handleQuantityChange(item.id, item.cantidad - 1)}
-                                                    >
-                                                        -
-                                                    </Button>
-                                                    <span className="mx-3">{item.cantidad}</span>
-                                                    <Button 
-                                                        variant="outline-secondary" 
-                                                        size="sm"
-                                                        onClick={() => handleQuantityChange(item.id, item.cantidad + 1)}
-                                                    >
-                                                        +
-                                                    </Button>
-                                                </div>
-                                            </td>
-                                            <td className="align-middle">
-                                                <strong className="text-primary">
-                                                    ${(item.precio * item.cantidad).toLocaleString('es-CL')}
-                                                </strong>
-                                            </td>
-                                            <td className="align-middle">
-                                                <Button 
-                                                    variant="outline-danger" 
-                                                    size="sm"
-                                                    onClick={() => removeFromCart(item.id)}
-                                                >
-                                                    🗑️
-                                                </Button>
-                                            </td>
-                                        </tr>
-                                    ))}
-                                </tbody>
-                            </Table>
-                        </Card.Body>
-                    </Card>
-
-                    {/* Acciones del carrito */}
-                    <div className="d-flex justify-content-between mt-3">
-                        <Link href="/productos" className="btn btn-outline-primary">
-                            ← Continuar Comprando
-                        </Link>
-                        <Button variant="outline-danger" onClick={clearCart}>
-                            🗑️ Vaciar Carrito
-                        </Button>
-                    </div>
-                </Col>
-
-                {/* Resumen del pedido */}
-                <Col lg={4}>
-                    <Card className="shadow-sm sticky-top" style={{ top: '100px' }}>
-                        <Card.Header className="bg-light">
-                            <h5 className="mb-0">Resumen del Pedido</h5>
-                        </Card.Header>
-                        <Card.Body>
-                            <div className="d-flex justify-content-between mb-2">
-                                <span>Productos ({getTotalItems()}):</span>
-                                <span>${getTotal().toLocaleString('es-CL')}</span>
-                            </div>
-                            <div className="d-flex justify-content-between mb-2">
-                                <span>Envío:</span>
-                                <span className={getTotal() > 50000 ? 'text-success' : ''}>
-                                    {getTotal() > 50000 ? 'GRATIS' : '$5.000'}
-                                </span>
-                            </div>
-                            <hr />
-                            <div className="d-flex justify-content-between mb-3">
-                                <strong>Total:</strong>
-                                <strong className="h5 text-primary">
-                                    ${(getTotal() + (getTotal() > 50000 ? 0 : 5000)).toLocaleString('es-CL')}
-                                </strong>
-                            </div>
-
-                            <Alert variant="info" className="small">
-                                {getTotal() < 50000 ? (
-                                    <>🎯 ¡Faltan <strong>${(50000 - getTotal()).toLocaleString('es-CL')}</strong> para envío gratis!</>
-                                ) : (
-                                    <>🚚 ¡Tienes envío gratis!</>
-                                )}
-                            </Alert>
-
-                            <Button 
-                                variant="success" 
-                                size="lg" 
-                                className="w-100"
-                                onClick={handleCheckout}
-                            >
-                                Proceder al Pago
-                            </Button>
-
-                            <div className="mt-3 text-center">
-                                <small className="text-muted">
-                                    💳 Pagos seguros con Webpay
-                                </small>
-                            </div>
-                        </Card.Body>
-                    </Card>
-                </Col>
-            </Row>
-        </Container>
+      <Container className="py-5">
+        <Row className="justify-content-center">
+          <Col md={8}>
+            <Card className="text-center shadow-sm border-0 p-4">
+              <h3>Debes iniciar sesión para ver y usar el carrito</h3>
+              <p className="text-muted">
+                El carrito se guarda por usuario y se restaurará automáticamente
+                cuando inicies sesión.
+              </p>
+              <div className="d-flex justify-content-center gap-2 mt-3">
+                <Link href="/login" className="btn btn-primary">
+                  Iniciar sesión
+                </Link>
+                <Link href="/registro" className="btn btn-outline-secondary">
+                  Crear cuenta
+                </Link>
+              </div>
+              {lastError && (
+                <Alert variant="danger" className="mt-3">
+                  {lastError}{" "}
+                  <Button variant="link" onClick={() => clearError()}>
+                    Cerrar
+                  </Button>
+                </Alert>
+              )}
+            </Card>
+          </Col>
+        </Row>
+      </Container>
     );
+  }
+
+  // Usuario existe: mostrar carrito normal
+  return (
+    <Container className="py-5">
+      <Row>
+        <Col md={8}>
+          <h2 className="mb-4">Carrito ({getCount()})</h2>
+
+          {(!items || items.length === 0) && (
+            <Card className="text-center shadow-sm border-0 p-4 mb-3">
+              <h5>Tu carrito está vacío</h5>
+              <p className="text-muted">
+                Agrega productos desde la página de productos.
+              </p>
+              <Link href="/productos" className="btn btn-primary mt-2">
+                Ver Productos
+              </Link>
+            </Card>
+          )}
+
+          {items.map((item) => (
+            <Card key={item.id} className="mb-3 shadow-sm">
+              <Card.Body className="d-flex align-items-center gap-3">
+                <img
+                  src={
+                    item.imagen ||
+                    item.thumbnail ||
+                    "/assets/productos/placeholder.png"
+                  }
+                  alt={item.nombre}
+                  style={{ width: 100, height: 100, objectFit: "contain" }}
+                />
+                <div className="flex-grow-1">
+                  <h5 className="mb-1">{item.nombre}</h5>
+                  <div className="text-primary fw-bold mb-2">
+                    ${Number(item.precio || 0).toLocaleString("es-CL")}
+                  </div>
+                  <div className="d-flex align-items-center gap-2">
+                    <Form.Control
+                      type="number"
+                      min={0}
+                      value={item.cantidad}
+                      onChange={(e) => {
+                        const val = parseInt(e.target.value || "0", 10);
+                        if (isNaN(val)) return;
+                        updateQuantity(item.id, val);
+                      }}
+                      style={{ width: 90 }}
+                    />
+                    <Button
+                      variant="outline-danger"
+                      size="sm"
+                      onClick={() => removeFromCart(item.id)}
+                    >
+                      Quitar
+                    </Button>
+                  </div>
+                </div>
+                <div className="text-end" style={{ minWidth: 140 }}>
+                  <div className="text-muted">Subtotal</div>
+                  <div className="fw-bold">
+                    $
+                    {(
+                      Number(item.precio || 0) * Number(item.cantidad || 0) || 0
+                    ).toLocaleString("es-CL")}
+                  </div>
+                </div>
+              </Card.Body>
+            </Card>
+          ))}
+        </Col>
+
+        <Col md={4}>
+          <Card className="p-3 shadow-sm">
+            <h5>Resumen del pedido</h5>
+            <hr />
+            <div className="d-flex justify-content-between">
+              <div>Productos</div>
+              <div>{items.length}</div>
+            </div>
+            <div className="d-flex justify-content-between">
+              <div>Cantidad total</div>
+              <div>{getCount()}</div>
+            </div>
+            <div className="d-flex justify-content-between fw-bold fs-5 mt-3">
+              <div>Total</div>
+              <div>${total.toLocaleString("es-CL")}</div>
+            </div>
+
+            <div className="d-grid gap-2 mt-3">
+              <Link href="/checkout" className="btn btn-primary">
+                Ir a pagar
+              </Link>
+              <Button variant="outline-secondary" onClick={() => clearCart()}>
+                Vaciar carrito
+              </Button>
+            </div>
+            {lastError && (
+              <Alert variant="danger" className="mt-3">
+                {lastError}
+              </Alert>
+            )}
+          </Card>
+        </Col>
+      </Row>
+    </Container>
+  );
 }

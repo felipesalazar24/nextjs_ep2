@@ -14,6 +14,7 @@ import {
   Dropdown,
   InputGroup,
   Spinner,
+  Collapse,
 } from "react-bootstrap";
 import { useAuth } from "../../../context/AuthContext";
 // Nota: NO importamos Header aquí (el layout ya lo renderiza)
@@ -771,10 +772,10 @@ export default function CrearProductoPage() {
                   </div>
                 </Form.Group>
 
-                {/** Manual routes area **/}
+                {/** Manual routes area (read-only now) **/}
                 <Form.Group className="mb-3">
                   <div className="d-flex justify-content-between align-items-center mb-2">
-                    <Form.Label className="mb-0">Rutas manuales</Form.Label>
+                    <Form.Label className="mb-0">Rutas</Form.Label>
                     <div>
                       <Button
                         type="button"
@@ -782,9 +783,7 @@ export default function CrearProductoPage() {
                         size="sm"
                         onClick={() => setManualOpen((v) => !v)}
                       >
-                        {manualOpen
-                          ? "Ocultar rutas"
-                          : "Mostrar rutas manuales"}
+                        {manualOpen ? "Ocultar rutas" : "Mostrar rutas"}
                       </Button>
                     </div>
                   </div>
@@ -798,27 +797,28 @@ export default function CrearProductoPage() {
                       }}
                     >
                       <Form.Group className="mb-3">
-                        <Form.Label>Imagen principal (ruta)</Form.Label>
-                        <InputGroup>
-                          <Form.Control
-                            type="text"
-                            name="imagen"
-                            value={form.imagen}
-                            onChange={(e) => {
-                              handleChange(e);
-                              setManualTouched(true);
-                            }}
-                            placeholder="Ej: /assets/productos/MX.jpg"
-                          />
-                          <Button
-                            type="button"
-                            variant="light"
-                            onClick={() => restoreDefaults()}
-                            style={{ marginLeft: 6 }}
-                          >
-                            reset
-                          </Button>
-                        </InputGroup>
+                        <Form.Label>Imagen principal</Form.Label>
+
+                        {/* READ-ONLY: mostrar la ruta en plaintext sin input ni reset */}
+                        <div
+                          className="form-control-plaintext p-2"
+                          style={{
+                            border: "1px solid #e9ecef",
+                            borderRadius: 4,
+                            minHeight: 38,
+                            background: "#fff",
+                            display: "flex",
+                            alignItems: "center",
+                            wordBreak: "break-all",
+                          }}
+                        >
+                          {form.imagen || uploaded.imagen || (
+                            <span className="text-muted">
+                              Ej: /assets/productos/MX.jpg
+                            </span>
+                          )}
+                        </div>
+
                         <Form.Text className="text-muted">
                           Se actualizará automáticamente cuando subas por drag
                           &amp; drop.
@@ -826,34 +826,35 @@ export default function CrearProductoPage() {
                       </Form.Group>
 
                       <Form.Group className="mb-3">
-                        <Form.Label>
-                          Miniaturas (cada ruta en su propio campo)
-                        </Form.Label>
+                        <Form.Label>Miniaturas</Form.Label>
 
-                        {(form.miniaturasList || []).map((m, idx) => (
-                          <InputGroup className="mb-2" key={`mini-${idx}`}>
-                            <Form.Control
-                              type="text"
-                              value={m}
-                              onChange={(e) =>
-                                updateMiniaturaField(idx, e.target.value)
-                              }
-                              placeholder="/assets/productos/MX.1.jpg"
-                            />
-                            <Button
-                              type="button"
-                              variant="light"
-                              onClick={() => restoreMiniaturaAt(idx)}
+                        {/* READ-ONLY: mostrar miniaturas como lista de plaintext (sin inputs ni reset) */}
+                        {Array.isArray(form.miniaturasList) &&
+                        form.miniaturasList.length > 0 ? (
+                          form.miniaturasList.map((m, idx) => (
+                            <div
+                              key={`mini-read-${idx}`}
+                              className="form-control-plaintext p-2 mb-2"
+                              style={{
+                                border: "1px solid #e9ecef",
+                                borderRadius: 4,
+                                background: "#fff",
+                                wordBreak: "break-all",
+                              }}
                             >
-                              reset
-                            </Button>
-                          </InputGroup>
-                        ))}
+                              {m}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-muted small">
+                            No hay miniaturas configuradas (se llenará tras la
+                            subida).
+                          </div>
+                        )}
 
                         <Form.Text className="text-muted d-block mt-2">
-                          Cada miniatura debe ser una ruta accesible (p. ej.
-                          /assets/productos/X.jpg). Usa 'reset' para volver a
-                          las rutas generadas automáticamente por la subida.
+                          Cada miniatura se va a guardar en
+                          /assets/productos(nombre imagen).jpg.
                         </Form.Text>
                       </Form.Group>
                     </div>

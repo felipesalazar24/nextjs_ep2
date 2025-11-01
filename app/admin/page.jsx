@@ -35,9 +35,8 @@ export default function AdminPage() {
               </div>
 
               <p className="text-muted">
-                Aquí puedes agregar links y componentes para administrar la
-                tienda. Por ahora es una página placeholder — añade tus
-                herramientas admin cuando estés listo.
+                Funciones de administrador cualquier Duda preguntar a Matias
+                Vega o Felipe Salazar sobre las funciones y su uso correcto.
               </p>
 
               {/* Ejemplo de secciones */}
@@ -47,7 +46,7 @@ export default function AdminPage() {
                     <Card.Body>
                       <h5>Usuarios</h5>
                       <p className="small text-muted">
-                        Ver, editar o eliminar usuarios registrados.
+                        Ver o eliminar usuarios registrados.
                       </p>
                       <Button variant="primary" href="/admin/usuarios">
                         Ir a Usuarios
