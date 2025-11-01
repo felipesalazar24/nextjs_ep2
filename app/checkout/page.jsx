@@ -18,19 +18,16 @@ import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
 
 /**
- * Checkout page
- * - Bloquea acceso si el carrito está vacío.
- * - Region / Comuna predefinidas: se muestran como selects y las comunas dependen de la región.
- * - Prefill desde user cuando existe.
- * - Al enviar simula pago (50% éxito / 50% fallo) y redirige a /checkout/success o /checkout/failed.
+ * Checkout page (actualizada)
+ * - Mantiene la lógica de región/comuna dependientes.
+ * - Al pago simulado con resultado "success" llama a POST /api/sales para persistir la venta en data/sales.json
+ * - Después de guardar (si es posible) limpia el carrito, guarda lastOrder en sessionStorage y redirige a success.
+ * - En fallo simulado guarda lastFailedOrder en sessionStorage y redirige a /checkout/failed.
  *
- * Reemplaza app/checkout/page.jsx en la rama draft/damp-grass
+ * Reemplaza: app/checkout/page.jsx
  */
 
-/**
- * Mapa de Regiones de Chile -> Comunas (lista representativa, no exhaustiva).
- * Puedes ampliar o cargar desde un fichero JSON si prefieres.
- */
+/* Mapa de regiones -> comunas (representativo) */
 const REGION_COMUNAS = {
   "Arica y Parinacota": ["Arica", "Camarones", "Putre", "General Lagos"],
   Tarapacá: [
@@ -380,7 +377,6 @@ export default function CheckoutPage() {
   const { user } = auth || {};
 
   const cartContext = useCart();
-  // compatibilidad con distintos nombres en el contexto
   const cartItems = cartContext.items ?? cartContext.cart ?? [];
   const getTotal =
     typeof cartContext.getTotal === "function"
@@ -398,15 +394,13 @@ export default function CheckoutPage() {
 
   const total = useMemo(() => getTotal(), [cartItems, cartContext]);
 
-  // Bloqueo de acceso si carrito vacío
-  const [blocked, setBlocked] = useState(null); // null = checking, true = blocked, false = ok
+  const [blocked, setBlocked] = useState(null);
 
   useEffect(() => {
     const hasItems = Array.isArray(cartItems) && cartItems.length > 0;
     setBlocked(!hasItems);
   }, [cartItems]);
 
-  // Form state with region/comuna select
   const [form, setForm] = useState({
     nombre: "",
     apellidos: "",
@@ -414,12 +408,11 @@ export default function CheckoutPage() {
     telefono: "",
     calle: "",
     depto: "",
-    region: "", // will be one of REGIONS or ""
-    comuna: "", // will be one from REGION_COMUNAS[region]
+    region: "",
+    comuna: "",
     instrucciones: "",
   });
 
-  // comunas options based on selected region
   const [comunasOptions, setComunasOptions] = useState([
     "Selecciona una comuna",
   ]);
@@ -428,7 +421,6 @@ export default function CheckoutPage() {
   const [serverMsg, setServerMsg] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Prefill with user data if available (also prefer user's region/comuna if exists)
   useEffect(() => {
     if (user) {
       const userRegion = user.region || user.región || user.regionName || "";
@@ -457,11 +449,9 @@ export default function CheckoutPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  // When region changes, update comunasOptions and reset comuna if needed
   useEffect(() => {
     if (form.region && REGION_COMUNAS[form.region]) {
       setComunasOptions(REGION_COMUNAS[form.region]);
-      // if current comuna not in new list, set to first option (placeholder)
       if (!REGION_COMUNAS[form.region].includes(form.comuna)) {
         setForm((prev) => ({
           ...prev,
@@ -491,7 +481,6 @@ export default function CheckoutPage() {
       newErrors.calle = "Calle / dirección requerida";
     if (!form.region || !form.region.trim())
       newErrors.region = "Región requerida";
-    // ensure comuna is not the placeholder
     if (!form.comuna || form.comuna === "Selecciona una comuna")
       newErrors.comuna = "Comuna requerida";
     return newErrors;
@@ -515,32 +504,51 @@ export default function CheckoutPage() {
     setIsSubmitting(true);
 
     try {
-      // Simular procesamiento
       await new Promise((r) => setTimeout(r, 900));
 
-      // Generar order id simple y datos de pedido
       const orderId = "ORDER" + String(Date.now()).slice(-8);
       const orderData = {
         id: orderId,
         total: Number(total || 0),
-        items: cartItems.map((it) => ({ ...it })), // copia
+        items: cartItems.map((it) => ({ ...it })),
         customer: { ...form },
         createdAt: new Date().toISOString(),
       };
 
-      const ok = Math.random() < 0.5; // 50% probabilidad
+      const ok = Math.random() < 0.5;
 
       if (ok) {
+        // Persist sale to server-side JSON (/api/sales)
+        try {
+          const res = await fetch("/api/sales", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify(orderData),
+          });
+
+          if (!res.ok) {
+            console.error(
+              "Error saving sale record:",
+              await res.text().catch(() => "")
+            );
+            // optional: setServerMsg({ type: "warning", text: "No se pudo guardar el registro de venta en el servidor." });
+          }
+        } catch (err) {
+          console.error("Fetch /api/sales error:", err);
+        }
+
         try {
           sessionStorage.setItem("lastOrder", JSON.stringify(orderData));
         } catch (err) {
           // ignore
         }
+
         try {
           clearCart();
         } catch (err) {
           // ignore
         }
+
         router.push(`/checkout/success?order=${orderId}`);
       } else {
         try {
@@ -559,7 +567,6 @@ export default function CheckoutPage() {
     }
   };
 
-  // Mientras se determina si está bloqueado, mostrar spinner
   if (blocked === null) {
     return (
       <Container className="py-5 text-center">
@@ -568,7 +575,6 @@ export default function CheckoutPage() {
     );
   }
 
-  // Si está bloqueado (carrito vacío) mostramos mensaje y botones para ir a productos o carrito
   if (blocked) {
     return (
       <Container className="py-5">
@@ -609,7 +615,6 @@ export default function CheckoutPage() {
     );
   }
 
-  // Si no está bloqueado: renderizar checkout completo
   return (
     <Container className="py-5">
       <Row className="justify-content-center">
@@ -735,8 +740,6 @@ export default function CheckoutPage() {
                       </div>
                     </Card.Body>
                   </Card>
-
-                  {/* Se eliminó la sección "Método de pago" solicitada */}
                 </Col>
               </Row>
 
