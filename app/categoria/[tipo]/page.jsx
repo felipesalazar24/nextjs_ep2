@@ -1,6 +1,7 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useEffect, useState } from "react";
+import Link from "next/link";
 import {
   Container,
   Row,
@@ -9,9 +10,10 @@ import {
   Button,
   Breadcrumb,
   Badge,
+  Spinner, // <-- agregado
 } from "react-bootstrap";
-import Link from "next/link";
 import { useParams } from "next/navigation";
+import { useCart } from "../../context/CartContext";
 import { getProductos } from "../../../lib/products"; // wrapper que expone los productos
 
 // Configuración visual y textos por categoría
@@ -42,10 +44,76 @@ const CATEGORIES = [
   },
 ];
 
+/**
+ * NOTA:
+ * - Se añadió la lógica local de ofertas (no se crean archivos nuevos).
+ * - loadOffers obtiene /api/offers y fallback a localStorage.createdOffers.
+ * - getOfferForProduct / getEffectivePrice calculan precio efectivo y %.
+ * - Solo se añadieron las partes necesarias para mostrar precio tachado, precio oferta y badge %
+ *   dentro de las tarjetas de productos de la categoría. El resto del layout se preservó.
+ */
+
+const loadOffers = async () => {
+  let serverOffers = [];
+  try {
+    const res = await fetch("/api/offers").catch(() => null);
+    if (res && res.ok) serverOffers = await res.json().catch(() => []);
+  } catch (err) {
+    serverOffers = [];
+  }
+
+  let created = [];
+  try {
+    if (typeof window !== "undefined") {
+      const raw = localStorage.getItem("createdOffers");
+      created = raw ? JSON.parse(raw) : [];
+    }
+  } catch (err) {
+    created = [];
+  }
+
+  const map = new Map();
+  for (const o of serverOffers || []) {
+    const pid = String(o.productId ?? o.id ?? "").trim();
+    if (!pid) continue;
+    map.set(pid, { ...o, source: "server" });
+  }
+  for (const o of created || []) {
+    const pid = String(o.productId ?? "").trim();
+    if (!pid) continue;
+    map.set(pid, { ...o, source: "admin" });
+  }
+
+  return { offersArray: Array.from(map.values()), offersMap: map };
+};
+
+const getOfferForProduct = (offersMap, product) => {
+  if (!offersMap || !product) return null;
+  const pid = String(product.id ?? product._id ?? product.sku ?? "").trim();
+  return offersMap.get(pid) || null;
+};
+
+const getEffectivePrice = (product, offer) => {
+  const raw = Number(product.precio ?? product.price ?? 0) || 0;
+  if (!offer) return { oldPrice: null, price: raw, percent: 0 };
+  const oldPrice = Number(offer.oldPrice ?? raw) || raw;
+  let price = Number(offer.newPrice ?? 0);
+  let percent = Number(offer.percent ?? 0);
+
+  if (!price && percent && oldPrice)
+    price = Math.round(oldPrice * (1 - percent / 100));
+  if (!percent && price && oldPrice)
+    percent = Math.round(((oldPrice - price) / oldPrice) * 100);
+  if (!price || price <= 0) price = raw;
+
+  return { oldPrice: oldPrice || null, price, percent: percent || 0 };
+};
+
 export default function CategoriaPage() {
   const params = useParams();
   const tipoCategoria = params.tipo || "";
   const productos = getProductos();
+  const { addToCart } = useCart();
 
   // Normalizar: el parámetro de ruta puede venir en minúsculas
   const tipoLower = String(tipoCategoria).toLowerCase();
@@ -87,6 +155,58 @@ export default function CategoriaPage() {
   // Mostrar cards de categorías EXCLUYENDO la categoría activa
   const categoriasParaMostrar = CATEGORIES.filter((c) => c.key !== tipoLower);
 
+  // Offers state
+  const [offersMap, setOffersMap] = useState(new Map());
+  const [offersLoading, setOffersLoading] = useState(true);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      setOffersLoading(true);
+      try {
+        const { offersMap: om } = await loadOffers();
+        if (!mounted) return;
+        setOffersMap(om);
+      } catch (err) {
+        console.warn("Error cargando ofertas:", err);
+        if (mounted) setOffersMap(new Map());
+      } finally {
+        if (mounted) setOffersLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  const safeSrc = (s) => {
+    if (!s) return "/assets/productos/placeholder.png";
+    try {
+      const str = String(s);
+      if (str.startsWith("data:")) return str;
+      if (typeof window !== "undefined" && !/^https?:\/\//i.test(str))
+        return new URL(str, window.location.origin).href;
+      return str;
+    } catch {
+      return String(s);
+    }
+  };
+
+  const handleAddToCart = (product, price) => {
+    try {
+      if (addToCart && typeof addToCart === "function") {
+        addToCart({ ...product, precio: Number(price) }, 1);
+      } else {
+        window.dispatchEvent(
+          new CustomEvent("add-to-cart", { detail: { product, price, qty: 1 } })
+        );
+      }
+      alert(`¡${product.nombre} agregado al carrito!`);
+    } catch (err) {
+      console.warn("addToCart error", err);
+    }
+  };
+
   return (
     <Container className="py-4">
       <Breadcrumb>
@@ -97,55 +217,117 @@ export default function CategoriaPage() {
 
       <h2 className="mb-4 text-capitalize">{tipoCategoria}</h2>
 
+      {offersLoading && (
+        <div className="text-center py-4">
+          <Spinner animation="border" role="status" />
+        </div>
+      )}
+
       {productosCategoria.length > 0 ? (
         <Row className="g-4">
-          {productosCategoria.map((producto) => (
-            <Col key={producto.id} md={4} lg={3}>
-              <Card className="h-100 shadow-sm">
-                <Card.Img
-                  variant="top"
-                  src={producto.imagen}
-                  style={{ height: 160, objectFit: "contain", padding: 12 }}
-                  onError={(e) => {
-                    e.target.src =
-                      "https://via.placeholder.com/300x200/cccccc/969696?text=Imagen";
-                  }}
-                />
-                <Card.Body className="d-flex flex-column">
-                  <div className="d-flex justify-content-between align-items-start mb-2">
-                    <h5 className="mb-0">{producto.nombre}</h5>
-                    <Badge
-                      bg={getCategoryVariant(
-                        String(
-                          producto.atributo || producto.categoria || ""
-                        ).toLowerCase()
-                      )}
-                    >
-                      {producto.atributo || producto.categoria}
-                    </Badge>
+          {productosCategoria.map((producto) => {
+            const offer = getOfferForProduct(offersMap, producto);
+            const ef = getEffectivePrice(producto, offer);
+            return (
+              <Col key={producto.id} md={4} lg={3}>
+                <Card className="h-100 shadow-sm">
+                  <div
+                    style={{
+                      position: "relative",
+                      padding: 12,
+                      textAlign: "center",
+                    }}
+                  >
+                    {ef && ef.percent ? (
+                      <Badge
+                        bg="danger"
+                        className="position-absolute"
+                        style={{
+                          right: 12,
+                          top: 12,
+                          borderRadius: 6,
+                          padding: "6px 8px",
+                          fontSize: 12,
+                        }}
+                      >
+                        -{ef.percent}%
+                      </Badge>
+                    ) : null}
+                    <Card.Img
+                      variant="top"
+                      src={safeSrc(producto.imagen)}
+                      style={{
+                        height: 160,
+                        objectFit: "contain",
+                        padding: 12,
+                        background: "#fff",
+                      }}
+                      onError={(e) => {
+                        e.target.src =
+                          "https://via.placeholder.com/300x200/cccccc/969696?text=Imagen";
+                      }}
+                    />
                   </div>
-                  <p className="text-primary fw-bold mb-3">
-                    ${Number(producto.precio).toLocaleString("es-CL")}
-                  </p>
 
-                  <div className="mt-auto d-grid gap-2">
-                    <Link
-                      href={`/productos/${producto.id}`}
-                      className="btn btn-outline-dark btn-sm"
-                    >
-                      Ver Detalles
-                    </Link>
-                    <Link
-                      href={`/productos/${producto.id}`}
-                      className="btn btn-primary btn-sm"
-                    >
-                      Agregar al Carrito
-                    </Link>
-                  </div>
-                </Card.Body>
-              </Card>
-            </Col>
-          ))}
+                  <Card.Body className="d-flex flex-column">
+                    <div className="d-flex justify-content-between align-items-start mb-2">
+                      <h5 className="mb-0">{producto.nombre}</h5>
+                      <Badge
+                        bg={getCategoryVariant(
+                          String(
+                            producto.atributo || producto.categoria || ""
+                          ).toLowerCase()
+                        )}
+                      >
+                        {producto.atributo || producto.categoria}
+                      </Badge>
+                    </div>
+
+                    {/* Precio: mostrar tachado + oferta si aplica, mantener formato original si no */}
+                    <div className="text-primary fw-bold mb-3">
+                      {ef && ef.oldPrice ? (
+                        <div>
+                          <span
+                            style={{
+                              textDecoration: "line-through",
+                              color: "#777",
+                              marginRight: 8,
+                            }}
+                          >
+                            ${Number(ef.oldPrice).toLocaleString("es-CL")}
+                          </span>
+                          <span style={{ color: "#0d6efd", fontWeight: 700 }}>
+                            ${Number(ef.price).toLocaleString("es-CL")}
+                          </span>
+                        </div>
+                      ) : (
+                        <div style={{ color: "#0d6efd", fontWeight: 700 }}>
+                          ${Number(producto.precio).toLocaleString("es-CL")}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="mt-auto d-grid gap-2">
+                      <Link
+                        href={`/productos/${producto.id}`}
+                        className="btn btn-outline-dark btn-sm"
+                      >
+                        Ver Detalles
+                      </Link>
+
+                      <Button
+                        variant="primary"
+                        className="btn-sm"
+                        onClick={() => handleAddToCart(producto, ef.price)}
+                      >
+                        Agregar al Carrito
+                      </Button>
+                    </div>
+                  </Card.Body>
+                </Card>
+              </Col>
+            );
+          })}
         </Row>
       ) : (
         <Row>

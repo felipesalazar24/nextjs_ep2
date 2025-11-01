@@ -1,14 +1,26 @@
 "use client";
 
 import React, { useEffect, useMemo, useState } from "react";
-import { Container, Row, Col, Card, Table, Badge, Button, Spinner, Alert } from "react-bootstrap";
+import {
+  Container,
+  Row,
+  Col,
+  Card,
+  Badge,
+  Button,
+  Spinner,
+  Alert,
+} from "react-bootstrap";
 import Link from "next/link";
+import { useCart } from "../context/CartContext";
 
 /**
  * Página pública de Ofertas
  * - Combina ofertas desde /api/offers y localStorage (createdOffers) para mostrar todas.
- * - Muestra producto, precio original, precio oferta y %.
- * - Enlace al producto.
+ * - Muestra productos en un grid (tarjetas) similares a /productos,
+ *   pero únicamente los que tengan oferta activa.
+ * - Cada tarjeta muestra imagen, nombre, categoría, precio original tachado,
+ *   precio oferta destacado y badge con porcentaje. Botón Ver Detalles y Agregar al carrito.
  */
 
 function normalizeId(v) {
@@ -21,6 +33,8 @@ export default function OfertasPage() {
   const [createdOffers, setCreatedOffers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  const { addToCart } = useCart();
 
   useEffect(() => {
     let mounted = true;
@@ -43,7 +57,10 @@ export default function OfertasPage() {
           offersData = await oRes.json().catch(() => []);
         }
 
-        const stored = typeof window !== "undefined" ? localStorage.getItem("createdOffers") : null;
+        const stored =
+          typeof window !== "undefined"
+            ? localStorage.getItem("createdOffers")
+            : null;
         const parsed = stored ? JSON.parse(stored) : [];
 
         if (!mounted) return;
@@ -72,7 +89,9 @@ export default function OfertasPage() {
     const map = new Map();
 
     for (const o of serverOffers || []) {
-      const pid = normalizeId(o.productId ?? o.id ?? (o.product && (o.product.id ?? o.product._id)));
+      const pid = normalizeId(
+        o.productId ?? o.id ?? (o.product && (o.product.id ?? o.product._id))
+      );
       if (!pid) continue;
       map.set(pid, { ...o, source: "server" });
     }
@@ -85,27 +104,71 @@ export default function OfertasPage() {
 
     const arr = [];
     for (const [pid, o] of map.entries()) {
-      const prod = productos.find((p) => normalizeId(p.id ?? p._id ?? p.sku) === pid);
+      const prod = productos.find(
+        (p) => normalizeId(p.id ?? p._id ?? p.sku) === pid
+      );
       if (!prod) continue;
+      const oldPrice = Number(o.oldPrice ?? prod.precio ?? 0);
+      const newPrice = Number(o.newPrice ?? 0);
+      const percent =
+        Number(o.percent) ||
+        (oldPrice && newPrice
+          ? Math.round(((oldPrice - newPrice) / oldPrice) * 100)
+          : 0);
+      if (!newPrice || newPrice <= 0) continue; // ignore invalid offers
       arr.push({
         productId: pid,
         product: prod,
-        oldPrice: o.oldPrice ?? prod.precio ?? null,
-        newPrice: o.newPrice ?? null,
-        percent: o.percent ?? (o.oldPrice && o.newPrice ? Math.round(((o.oldPrice - o.newPrice) / o.oldPrice) * 100) : 0),
+        oldPrice,
+        newPrice,
+        percent,
         source: o.source || "admin",
         raw: o,
       });
     }
 
-    arr.sort((a, b) => (b.percent || 0) - (a.percent || 0) || (a.newPrice || 0) - (b.newPrice || 0));
+    arr.sort(
+      (a, b) =>
+        (b.percent || 0) - (a.percent || 0) ||
+        (a.newPrice || 0) - (b.newPrice || 0)
+    );
     return arr;
   }, [serverOffers, createdOffers, productos]);
+
+  const safeSrc = (s) => {
+    if (!s) return "/assets/productos/placeholder.png";
+    try {
+      const str = String(s);
+      if (str.startsWith("data:")) return str;
+      if (typeof window !== "undefined" && !/^https?:\/\//i.test(str))
+        return new URL(str, window.location.origin).href;
+      return str;
+    } catch {
+      return String(s);
+    }
+  };
+
+  const handleAddToCart = (product, price) => {
+    try {
+      if (addToCart && typeof addToCart === "function") {
+        // add product with overridden price so cart reflects offer price
+        addToCart({ ...product, precio: Number(price) }, 1);
+        alert(`¡${product.nombre} agregado al carrito!`);
+      } else {
+        window.dispatchEvent(
+          new CustomEvent("add-to-cart", { detail: { product, price, qty: 1 } })
+        );
+      }
+    } catch (err) {
+      console.warn("addToCart error", err);
+    }
+  };
 
   return (
     <Container className="py-5">
       <div className="d-flex justify-content-between align-items-center mb-4">
         <h3 className="mb-0">Ofertas</h3>
+        <small className="text-muted">Productos con descuentos</small>
       </div>
 
       {loading && (
@@ -121,50 +184,93 @@ export default function OfertasPage() {
       )}
 
       {!loading && ofertas.length > 0 && (
-        <Table responsive bordered hover>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>Producto</th>
-              <th>Precio original</th>
-              <th>Precio oferta</th>
-              <th>Descuento</th>
-              <th>Fuente</th>
-              <th>Acciones</th>
-            </tr>
-          </thead>
-          <tbody>
-            {ofertas.map((o, idx) => (
-              <tr key={o.productId}>
-                <td>{idx + 1}</td>
-                <td>
-                  <div className="d-flex align-items-center gap-3">
-                    <img
-                      src={o.product.imagen || (o.product.miniaturas && o.product.miniaturas[0]) || "/assets/productos/placeholder.png"}
-                      alt={o.product.nombre}
-                      style={{ width: 56, height: 40, objectFit: "contain" }}
-                      onError={(e) => (e.target.src = "/assets/productos/placeholder.png")}
-                    />
+        <Row xs={1} md={2} lg={4} className="g-4">
+          {ofertas.map((o) => (
+            <Col key={o.productId}>
+              <Card className="h-100 shadow-sm border-0 product-card">
+                <div
+                  className="position-relative"
+                  style={{ padding: 18, textAlign: "center" }}
+                >
+                  {o.percent ? (
+                    <Badge
+                      bg="danger"
+                      className="position-absolute"
+                      style={{
+                        right: 12,
+                        top: 12,
+                        borderRadius: 6,
+                        padding: "6px 8px",
+                        fontSize: 12,
+                      }}
+                    >
+                      -{o.percent}%
+                    </Badge>
+                  ) : null}
+                  <img
+                    src={safeSrc(
+                      o.product.imagen ||
+                        (o.product.miniaturas && o.product.miniaturas[0]) ||
+                        "/assets/productos/placeholder.png"
+                    )}
+                    alt={o.product.nombre}
+                    style={{ width: "100%", height: 160, objectFit: "contain" }}
+                    onError={(e) =>
+                      (e.target.src = "/assets/productos/placeholder.png")
+                    }
+                  />
+                </div>
+
+                <Card.Body className="d-flex flex-column">
+                  <Card.Title className="h6 mb-2">
+                    <Link
+                      href={`/productos/${o.product.id}`}
+                      className="text-dark text-decoration-none"
+                    >
+                      {o.product.nombre}
+                    </Link>
+                  </Card.Title>
+
+                  <small className="text-muted mb-2">
+                    {o.product.atributo || o.product.categoria}
+                  </small>
+
+                  <div className="mb-3">
                     <div>
-                      <div>{o.product.nombre}</div>
-                      <small className="text-muted">{o.product.atributo || o.product.categoria}</small>
+                      <span
+                        style={{
+                          textDecoration: "line-through",
+                          color: "#777",
+                          marginRight: 8,
+                        }}
+                      >
+                        ${Number(o.oldPrice || 0).toLocaleString("es-CL")}
+                      </span>
+                      <span style={{ color: "#0d6efd", fontWeight: 700 }}>
+                        ${Number(o.newPrice || 0).toLocaleString("es-CL")}
+                      </span>
                     </div>
                   </div>
-                </td>
-                <td>${Number(o.oldPrice || 0).toLocaleString("es-CL")}</td>
-                <td>${Number(o.newPrice || 0).toLocaleString("es-CL")}</td>
-                <td>{o.percent ? `-${o.percent}%` : "-"}</td>
-                <td><Badge bg={o.source === "server" ? "info" : "secondary"}>{o.source}</Badge></td>
-                <td>
-                  <div className="d-flex gap-2">
-                    <Link href={`/productos/${o.product.id}`} className="btn btn-outline-dark btn-sm">Ver</Link>
-                    {/* No eliminamos ofertas desde aquí (solo admin) */}
+
+                  <div className="mt-auto d-grid">
+                    <Link
+                      href={`/productos/${o.product.id}`}
+                      className="btn btn-outline-dark btn-sm mb-2"
+                    >
+                      Ver Detalles
+                    </Link>
+                    <Button
+                      variant="primary"
+                      onClick={() => handleAddToCart(o.product, o.newPrice)}
+                    >
+                      Agregar al Carrito
+                    </Button>
                   </div>
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </Table>
+                </Card.Body>
+              </Card>
+            </Col>
+          ))}
+        </Row>
       )}
     </Container>
   );
