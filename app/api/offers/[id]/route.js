@@ -37,8 +37,14 @@ function writeOffersSync(offers) {
   fs.writeFileSync(OFFERS_FILE, JSON.stringify(offers, null, 2), "utf8");
 }
 
-export async function DELETE(req, { params }) {
+export async function DELETE(req, context) {
   try {
+    // context.params puede ser "resolvable" — awaitearlo evita el error
+    const params =
+      typeof context?.params?.then === "function"
+        ? await context.params
+        : context?.params;
+
     const id = String(params?.id ?? "").trim();
     if (!id) {
       return new Response(JSON.stringify({ error: "Missing id param" }), {
