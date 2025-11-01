@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Container,
   Row,
@@ -12,15 +13,42 @@ import {
   Alert,
   Badge,
   Dropdown,
-  InputGroup,
   Spinner,
-  Collapse,
 } from "react-bootstrap";
 import { useAuth } from "../../../context/AuthContext";
 // Nota: NO importamos Header aquí (el layout ya lo renderiza)
 
 const CATEGORIES = ["Mouse", "Teclado", "Audifono", "Monitor"];
 const STORAGE_KEY = "admin_producto_uploaded_draft";
+
+/**
+ * Función auxiliar para determinar si el usuario es admin.
+ * Se adapta a distintos shapes del objeto user (rol, role, isAdmin, admin, roles array).
+ */
+function userIsAdmin(user) {
+  if (!user) return false;
+  if (user.isAdmin === true) return true;
+  if (user.admin === true) return true;
+  const role = (user.role || user.rol || user.roleName || "")
+    .toString()
+    .toLowerCase();
+  if (role === "admin" || role === "administrator") return true;
+  if (
+    Array.isArray(user.roles) &&
+    user.roles.some((r) => String(r).toLowerCase() === "admin")
+  )
+    return true;
+  if (
+    Array.isArray(user.permissions) &&
+    (user.permissions.includes("admin") || user.permissions.includes("ADMIN"))
+  )
+    return true;
+  const nameCheck = (user.name || user.nombre || user.displayName || "")
+    .toString()
+    .toLowerCase();
+  if (nameCheck.includes("admin")) return true;
+  return false;
+}
 
 export default function CrearProductoPage() {
   const auth = useAuth();
@@ -101,6 +129,22 @@ export default function CrearProductoPage() {
   const [catsOpen, setCatsOpen] = useState(false);
 
   const [manualOpen, setManualOpen] = useState(false);
+
+  // ---------- AUTH HOOKS: MUST BE DECLARED BEFORE ANY EARLY RETURNS ----------
+  // compute isAdmin unconditionally (hook order stable)
+  const isAdmin = useMemo(() => userIsAdmin(auth.user), [auth.user]);
+
+  // schedule redirect if user is explicitly null (with a short delay to avoid false redirects while auth hydrates)
+  useEffect(() => {
+    let t;
+    if (auth.user === null) {
+      t = setTimeout(() => router.push("/login"), 1200);
+    }
+    return () => {
+      if (t) clearTimeout(t);
+    };
+  }, [auth.user, router]);
+  // ------------------------------------------------------------------------
 
   // Al montar: cargar estado guardado (si existe)
   useEffect(() => {
@@ -488,17 +532,7 @@ export default function CrearProductoPage() {
     }));
   };
 
-  useEffect(() => {
-    // si el provider aún no terminó la lectura inicial, esperar
-    if (auth.hydrated === false) return;
-
-    // una vez hidratado, si no hay usuario o no es admin, redirigir
-    if (!auth.user || !(auth.user.rol === "admin" || auth.user.isAdmin)) {
-      router.push("/login");
-    }
-  }, [auth.hydrated, auth.user, router]);
-
-  // mostrar loading mientras auth se hidrata para evitar redirección prematura
+  // --- AUTH-BASED RENDERING / EARLY RETURNS (hooks above ensure stable order) ---
   if (auth.hydrated === false) {
     return (
       <Container className="py-5 text-center">
@@ -509,6 +543,36 @@ export default function CrearProductoPage() {
       </Container>
     );
   }
+
+  // If auth.user === null show transient message while redirect scheduled by useEffect
+  if (auth.user === null) {
+    return (
+      <Container className="py-5 text-center">
+        <Alert variant="warning">
+          Comprobando sesión... serás redirigido al login si no hay sesión.
+        </Alert>
+      </Container>
+    );
+  }
+
+  // If user exists but is not admin show access denied (link to home)
+  if (auth.user && !isAdmin) {
+    return (
+      <Container className="py-5">
+        <Alert variant="danger" className="mb-3">
+          Acceso denegado. Necesitas permisos de administrador para ver esta
+          página.
+        </Alert>
+
+        <div>
+          <Link href="/" className="btn btn-secondary">
+            Volver al inicio
+          </Link>
+        </div>
+      </Container>
+    );
+  }
+  // --- END AUTH GUARD ---
 
   return (
     <Container className="py-5">

@@ -3,31 +3,26 @@
 import React, { useEffect, useMemo, useState } from "react";
 import {
   Container,
-  Row,
-  Col,
   Card,
   Table,
-  Form,
   Button,
   Badge,
   Alert,
   Spinner,
   Modal,
+  Form,
 } from "react-bootstrap";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../../../context/AuthContext";
 
 /**
- * Página administrativa de Ofertas (app/admin/productos/ofertas/page.jsx)
+ * Página administrativa de Ofertas (actualizada)
+ * - Revisión de permisos inline (sin nuevos archivos).
+ * - Spinner mientras auth se hidrata; espera breve antes de redirigir si user === null.
+ * - Muestra el mismo mensaje de acceso denegado que solicitaste cuando no es admin.
  *
- * - Requiere usuario admin (detección flexible).
- * - Lista ofertas (server + localStorage fallback).
- * - Permite crear oferta (modal): seleccionar producto, porcentaje o precio fijo.
- * - Crea la oferta vía POST /api/offers (cae a localStorage si falla).
- * - Permite eliminar oferta vía DELETE /api/offers/[id] (y limpiar localStorage).
- *
- * Copia y pega este archivo en app/admin/productos/ofertas/page.jsx
+ * Ahora el botón envía al Home (app/page.jsx).
  */
 
 function userIsAdmin(user) {
@@ -67,7 +62,7 @@ export default function AdminOffersPage() {
 
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [modalProductId, setModalProductId] = useState("");
-  const [modalType, setModalType] = useState("percent"); // 'percent' | 'price'
+  const [modalType, setModalType] = useState("percent");
   const [modalValue, setModalValue] = useState("");
   const [modalError, setModalError] = useState(null);
   const [modalSaving, setModalSaving] = useState(false);
@@ -75,7 +70,7 @@ export default function AdminOffersPage() {
 
   const isAdmin = useMemo(() => userIsAdmin(user), [user]);
 
-  // Avoid immediate redirect while auth context hydrates.
+  // Avoid immediate redirect; wait a short timeout if user === null
   useEffect(() => {
     let t;
     if (user === null) {
@@ -88,7 +83,6 @@ export default function AdminOffersPage() {
     };
   }, [user, router]);
 
-  // Load products and offers
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -137,7 +131,6 @@ export default function AdminOffersPage() {
     };
   }, []);
 
-  // Combine offers from server and local created offers (admin)
   const ofertas = useMemo(() => {
     const map = new Map();
 
@@ -198,7 +191,6 @@ export default function AdminOffersPage() {
     setModalError(null);
   };
 
-  // Create offer: try POST /api/offers, fallback to localStorage
   const submitCreateOffer = async () => {
     setModalError(null);
     if (!modalProductId) {
@@ -270,7 +262,6 @@ export default function AdminOffersPage() {
     }
 
     if (!saved) {
-      // fallback to localStorage
       try {
         const raw = localStorage.getItem("createdOffers");
         const parsed = raw ? JSON.parse(raw) : [];
@@ -296,7 +287,6 @@ export default function AdminOffersPage() {
 
   const handleDeleteOffer = async (productId) => {
     const pid = String(productId);
-    // optimistic updates
     setServerOffers((prev) =>
       (prev || []).filter((o) => String(o.productId) !== pid)
     );
@@ -318,7 +308,7 @@ export default function AdminOffersPage() {
     }
   };
 
-  // auth states handling
+  // Auth handling: show spinner while auth hydrates
   if (typeof user === "undefined") {
     return (
       <Container className="py-5 text-center">
@@ -327,6 +317,7 @@ export default function AdminOffersPage() {
     );
   }
 
+  // If not logged in (transient), show message while redirect will happen
   if (user === null) {
     return (
       <Container className="py-5">
@@ -337,16 +328,20 @@ export default function AdminOffersPage() {
     );
   }
 
+  // If logged but not admin: show unified access denied UI (Home link)
   if (!isAdmin) {
     return (
       <Container className="py-5">
-        <Alert variant="danger">
+        <Alert variant="danger" className="mb-3">
           Acceso denegado. Necesitas permisos de administrador para ver esta
           página.
         </Alert>
-        <Link href="/admin" className="btn btn-secondary">
-          Volver al panel
-        </Link>
+
+        <div>
+          <Link href="/" className="btn btn-secondary">
+            Volver al inicio
+          </Link>
+        </div>
       </Container>
     );
   }

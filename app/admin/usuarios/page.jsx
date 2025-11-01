@@ -1,222 +1,160 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import {
-  Container,
-  Row,
-  Col,
-  Card,
-  Table,
-  Button,
-  Spinner,
-  Alert,
-  Modal,
-} from "react-bootstrap";
+import { Container, Table, Spinner, Alert, Button } from "react-bootstrap";
 import { useAuth } from "../../context/AuthContext";
+
+/**
+ * Admin Usuarios page
+ * - Aplica la misma verificación de acceso que admin/productos/ofertas/page.jsx
+ * - Lista usuarios desde /api/usuarios (si existe)
+ *
+ * Ahora el access-denied botón manda al Home (app/page.jsx).
+ */
+
+function userIsAdmin(user) {
+  if (!user) return false;
+  if (user.isAdmin === true) return true;
+  if (user.admin === true) return true;
+  const role = (user.role || user.rol || user.roleName || "").toString().toLowerCase();
+  if (role === "admin" || role === "administrator") return true;
+  if (Array.isArray(user.roles) && user.roles.some((r) => String(r).toLowerCase() === "admin")) return true;
+  if (Array.isArray(user.permissions) && (user.permissions.includes("admin") || user.permissions.includes("ADMIN"))) return true;
+  const nameCheck = (user.name || user.nombre || user.displayName || "").toString().toLowerCase();
+  if (nameCheck.includes("admin")) return true;
+  return false;
+}
 
 export default function AdminUsuariosPage() {
   const { user } = useAuth();
   const router = useRouter();
+  const isAdmin = useMemo(() => userIsAdmin(user), [user]);
 
   const [usuarios, setUsuarios] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState("");
-  const [deletingId, setDeletingId] = useState(null);
-  const [showDetail, setShowDetail] = useState(false);
-  const [detailUser, setDetailUser] = useState(null);
+  const [error, setError] = useState(null);
 
+  // Delay redirect if unauthenticated to avoid false redirects while auth hydrates
   useEffect(() => {
-    // sólo admins pueden acceder
-    if (!user) return; // espera a que se hidrate el contexto
-    if (user.rol !== "admin" && !user.isAdmin) {
-      router.push("/login");
+    let t;
+    if (user === null) {
+      t = setTimeout(() => router.push("/login"), 1200);
     }
+    return () => {
+      if (t) clearTimeout(t);
+    };
   }, [user, router]);
 
   useEffect(() => {
     if (!user) return;
-    // carga usuarios desde la API
-    const load = async () => {
+    let mounted = true;
+    (async () => {
       setLoading(true);
-      setError("");
+      setError(null);
       try {
         const res = await fetch("/api/usuarios");
         if (!res.ok) {
           const data = await res.json().catch(() => ({}));
-          throw new Error(data.error || "Error al obtener usuarios");
+          throw new Error(data.error || "Error al cargar usuarios");
         }
-        const data = await res.json();
+        const data = await res.json().catch(() => []);
+        if (!mounted) return;
         setUsuarios(Array.isArray(data) ? data : []);
       } catch (err) {
+        console.error(err);
+        if (!mounted) return;
         setError(err.message || "Error desconocido");
+        setUsuarios([]);
       } finally {
-        setLoading(false);
+        if (mounted) setLoading(false);
       }
+    })();
+    return () => {
+      mounted = false;
     };
-    load();
   }, [user]);
 
-  const handleDelete = async (id) => {
-    if (!confirm("¿Eliminar este usuario? Esta acción no se puede deshacer."))
-      return;
-    try {
-      setDeletingId(id);
-      const res = await fetch(`/api/usuarios/${id}`, { method: "DELETE" });
-      if (!res.ok) {
-        const data = await res.json().catch(() => ({}));
-        throw new Error(data.error || "Error al eliminar usuario");
-      }
-      setUsuarios((prev) => prev.filter((u) => u.id !== id));
-    } catch (err) {
-      alert(err.message || "No se pudo eliminar");
-    } finally {
-      setDeletingId(null);
-    }
-  };
+  if (typeof user === "undefined") {
+    return (
+      <Container className="py-5 text-center">
+        <Spinner animation="border" role="status" />
+      </Container>
+    );
+  }
 
-  const openDetail = (u) => {
-    setDetailUser(u);
-    setShowDetail(true);
-  };
+  if (user === null) {
+    return (
+      <Container className="py-5 text-center">
+        <Alert variant="warning">Comprobando sesión... serás redirigido al login si no hay sesión.</Alert>
+      </Container>
+    );
+  }
 
-  const closeDetail = () => {
-    setShowDetail(false);
-    setDetailUser(null);
-  };
+  if (!isAdmin) {
+    return (
+      <Container className="py-5">
+        <Alert variant="danger" className="mb-3">
+          Acceso denegado. Necesitas permisos de administrador para ver esta página.
+        </Alert>
+        <div>
+          <Link href="/" className="btn btn-secondary">Volver al inicio</Link>
+        </div>
+      </Container>
+    );
+  }
 
   return (
     <Container className="py-5">
-      <Row className="justify-content-center">
-        <Col md={12}>
-          <Card className="shadow border-0">
-            <Card.Body>
-              <div className="d-flex justify-content-between align-items-center mb-3">
-                <h3 className="mb-0">Usuarios registrados</h3>
-                <div>
-                  <Button
-                    variant="outline-primary"
-                    href="/admin"
-                    className="me-2"
-                  >
-                    Volver al panel
-                  </Button>
-                </div>
-              </div>
+      <div className="d-flex justify-content-between align-items-center mb-3">
+        <h3 className="mb-0">Usuarios</h3>
+        <div className="d-flex gap-2">
+          <Link href="/admin" className="btn btn-outline-secondary">Volver al panel</Link>
+          <Button variant="primary" href="/admin/usuarios/crear">Crear Usuario</Button>
+        </div>
+      </div>
 
-              {loading && (
-                <div className="text-center py-4">
-                  <Spinner animation="border" role="status" />
-                </div>
-              )}
+      {loading && (
+        <div className="text-center py-4">
+          <Spinner animation="border" role="status" />
+        </div>
+      )}
 
-              {error && <Alert variant="danger">{error}</Alert>}
+      {error && <Alert variant="danger">{error}</Alert>}
 
-              {!loading && !error && usuarios.length === 0 && (
-                <Alert variant="info">No hay usuarios registrados.</Alert>
-              )}
+      {!loading && !error && usuarios.length === 0 && (
+        <Alert variant="info">No hay usuarios registrados.</Alert>
+      )}
 
-              {!loading && !error && usuarios.length > 0 && (
-                <Table bordered hover responsive>
-                  <thead>
-                    <tr>
-                      <th>#</th>
-                      <th>Nombre</th>
-                      <th>Email</th>
-                      <th>Teléfono</th>
-                      <th>Región</th>
-                      <th>Comuna</th>
-                      <th>Rol</th>
-                      <th className="text-center">Acciones</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {usuarios.map((u, idx) => (
-                      <tr key={u.id}>
-                        <td>{idx + 1}</td>
-                        <td>{u.nombre || "-"}</td>
-                        <td>{u.email}</td>
-                        <td>{u.telefono || "-"}</td>
-                        <td>{u.region || "-"}</td>
-                        <td>{u.comuna || "-"}</td>
-                        <td>{u.rol || "user"}</td>
-                        <td className="text-center">
-                          <Button
-                            variant="outline-secondary"
-                            size="sm"
-                            className="me-2"
-                            onClick={() => openDetail(u)}
-                          >
-                            Ver
-                          </Button>
-                          {/* No permitimos eliminar admins por seguridad en UI */}
-                          {u.rol === "admin" ? (
-                            <Button variant="secondary" size="sm" disabled>
-                              Admin
-                            </Button>
-                          ) : (
-                            <Button
-                              variant="danger"
-                              size="sm"
-                              onClick={() => handleDelete(u.id)}
-                              disabled={deletingId === u.id}
-                            >
-                              {deletingId === u.id ? "Eliminando…" : "Eliminar"}
-                            </Button>
-                          )}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </Table>
-              )}
-
-              {/* Modal con detalle completo del usuario (sin password) */}
-              <Modal show={showDetail} onHide={closeDetail} centered>
-                <Modal.Header closeButton>
-                  <Modal.Title>Detalle de usuario</Modal.Title>
-                </Modal.Header>
-                <Modal.Body>
-                  {detailUser ? (
-                    <div>
-                      <p>
-                        <strong>Nombre:</strong> {detailUser.nombre || "-"}
-                      </p>
-                      <p>
-                        <strong>Email:</strong> {detailUser.email}
-                      </p>
-                      <p>
-                        <strong>Teléfono:</strong> {detailUser.telefono || "-"}
-                      </p>
-                      <p>
-                        <strong>Región:</strong> {detailUser.region || "-"}
-                      </p>
-                      <p>
-                        <strong>Comuna:</strong> {detailUser.comuna || "-"}
-                      </p>
-                      <p>
-                        <strong>Rol:</strong> {detailUser.rol || "user"}
-                      </p>
-                      <p>
-                        <small className="text-muted">
-                          ID: {detailUser.id}
-                        </small>
-                      </p>
-                    </div>
-                  ) : (
-                    <div>Cargando...</div>
-                  )}
-                </Modal.Body>
-                <Modal.Footer>
-                  <Button variant="secondary" onClick={closeDetail}>
-                    Cerrar
-                  </Button>
-                </Modal.Footer>
-              </Modal>
-            </Card.Body>
-          </Card>
-        </Col>
-      </Row>
+      {!loading && !error && usuarios.length > 0 && (
+        <Table responsive bordered hover>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>Nombre</th>
+              <th>Email</th>
+              <th>Rol</th>
+              <th>Acciones</th>
+            </tr>
+          </thead>
+          <tbody>
+            {usuarios.map((u, i) => (
+              <tr key={u.id ?? u._id ?? i}>
+                <td>{i + 1}</td>
+                <td>{u.nombre || u.name || "-"}</td>
+                <td>{u.email || "-"}</td>
+                <td>{u.rol || u.role || "-"}</td>
+                <td>
+                  <div className="d-flex gap-2">
+                    <Link href={`/admin/usuarios/${u.id ?? u._id}`} className="btn btn-sm btn-outline-dark">Ver</Link>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </Table>
+      )}
     </Container>
   );
 }
