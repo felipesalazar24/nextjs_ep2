@@ -114,6 +114,16 @@ export default function AdminProductosPage() {
                   >
                     Volver al panel
                   </Button>
+
+                  {/* Botón para acceder a la gestión de ofertas */}
+                  <Button
+                    variant="info"
+                    href="/admin/productos/ofertas"
+                    className="me-2"
+                  >
+                    Gestionar Ofertas
+                  </Button>
+
                   <Button variant="primary" href="/admin/productos/crear">
                     Crear Producto
                   </Button>
@@ -192,8 +202,6 @@ export default function AdminProductosPage() {
                           >
                             Ver
                           </Button>
-
-                          {/* Editar button removed as requested */}
 
                           <Button
                             variant="danger"

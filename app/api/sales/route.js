@@ -4,10 +4,9 @@ import fs from "fs";
 import path from "path";
 
 /**
- * API route (POST) to persist a sale (order) to data/sales.json
- * - Creates data/sales.json if missing.
- * - Appends the incoming order object (with server timestamp) to the array.
- * - Returns the saved order object with server-added fields (savedAt).
+ * API route para ventas:
+ * - GET: devuelve data/sales.json (array)
+ * - POST: persiste una venta en data/sales.json (crea archivo/carpeta si hace falta)
  *
  * Pegar en: app/api/sales/route.js
  */
@@ -25,6 +24,30 @@ async function ensureDataFile() {
     }
   } catch (err) {
     throw err;
+  }
+}
+
+export async function GET() {
+  try {
+    await ensureDataFile();
+    const raw = fs.readFileSync(SALES_FILE, "utf8");
+    let sales = [];
+    try {
+      sales = JSON.parse(raw);
+      if (!Array.isArray(sales)) sales = [];
+    } catch {
+      sales = [];
+    }
+    return new Response(JSON.stringify(sales), {
+      status: 200,
+      headers: { "Content-Type": "application/json" },
+    });
+  } catch (err) {
+    console.error("Error GET /api/sales:", err);
+    return new Response(JSON.stringify({ error: "Server error" }), {
+      status: 500,
+      headers: { "Content-Type": "application/json" },
+    });
   }
 }
 
@@ -50,7 +73,6 @@ export async function POST(req) {
       sales = [];
     }
 
-    // Build server-side record (do not trust client for timestamps)
     const serverRecord = {
       ...body,
       savedAt: new Date().toISOString(),
@@ -58,7 +80,6 @@ export async function POST(req) {
 
     sales.push(serverRecord);
 
-    // Write back (pretty)
     fs.writeFileSync(SALES_FILE, JSON.stringify(sales, null, 2), "utf8");
 
     return new Response(JSON.stringify({ ok: true, record: serverRecord }), {
@@ -66,7 +87,7 @@ export async function POST(req) {
       headers: { "Content-Type": "application/json" },
     });
   } catch (err) {
-    console.error("Error in /api/sales:", err);
+    console.error("Error POST /api/sales:", err);
     return new Response(JSON.stringify({ error: "Server error" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
