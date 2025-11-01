@@ -1,6 +1,7 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   Container,
@@ -15,6 +16,40 @@ import {
 } from "react-bootstrap";
 import { useAuth } from "../../context/AuthContext";
 
+/**
+ * Admin Productos (actualizado)
+ * - Usa la verificación de acceso igual que admin/productos/ofertas: spinner mientras auth se hidrata,
+ *   espera breve antes de redirigir al login si user === null, y muestra el mismo
+ *   mensaje de "Acceso denegado" cuando el usuario existe pero no es admin.
+ *
+ * El botón ahora envía al Home (app/page.jsx).
+ */
+
+function userIsAdmin(user) {
+  if (!user) return false;
+  if (user.isAdmin === true) return true;
+  if (user.admin === true) return true;
+  const role = (user.role || user.rol || user.roleName || "")
+    .toString()
+    .toLowerCase();
+  if (role === "admin" || role === "administrator") return true;
+  if (
+    Array.isArray(user.roles) &&
+    user.roles.some((r) => String(r).toLowerCase() === "admin")
+  )
+    return true;
+  if (
+    Array.isArray(user.permissions) &&
+    (user.permissions.includes("admin") || user.permissions.includes("ADMIN"))
+  )
+    return true;
+  const nameCheck = (user.name || user.nombre || user.displayName || "")
+    .toString()
+    .toLowerCase();
+  if (nameCheck.includes("admin")) return true;
+  return false;
+}
+
 export default function AdminProductosPage() {
   const { user } = useAuth();
   const router = useRouter();
@@ -27,11 +62,14 @@ export default function AdminProductosPage() {
   const [detailProduct, setDetailProduct] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
 
+  // While auth may still be hydrating, we avoid redirecting immediately.
   useEffect(() => {
-    // sólo admins pueden acceder
-    if (!user) return; // espera a que se hidrate el contexto
-    if (user.rol !== "admin" && !user.isAdmin) {
-      router.push("/login");
+    if (typeof user === "undefined") return;
+    if (user === null) {
+      const t = setTimeout(() => {
+        router.push("/login");
+      }, 1200);
+      return () => clearTimeout(t);
     }
   }, [user, router]);
 
@@ -98,6 +136,47 @@ export default function AdminProductosPage() {
     setSelectedImage(null);
   };
 
+  const isAdmin = useMemo(() => userIsAdmin(user), [user]);
+
+  // While auth is loading: spinner
+  if (typeof user === "undefined") {
+    return (
+      <Container className="py-5 text-center">
+        <Spinner animation="border" role="status" />
+      </Container>
+    );
+  }
+
+  // If not logged (transient): show a message while the redirect (scheduled) happens
+  if (user === null) {
+    return (
+      <Container className="py-5 text-center">
+        <Alert variant="warning">
+          Comprobando sesión... serás redirigido al login si no hay sesión.
+        </Alert>
+      </Container>
+    );
+  }
+
+  // If logged but not admin: show unified access denied UI (Home link)
+  if (!isAdmin) {
+    return (
+      <Container className="py-5">
+        <Alert variant="danger" className="mb-3">
+          Acceso denegado. Necesitas permisos de administrador para ver esta
+          página.
+        </Alert>
+
+        <div>
+          <Link href="/" className="btn btn-secondary">
+            Volver al inicio
+          </Link>
+        </div>
+      </Container>
+    );
+  }
+
+  // Admin UI
   return (
     <Container className="py-5">
       <Row className="justify-content-center">
@@ -114,6 +193,15 @@ export default function AdminProductosPage() {
                   >
                     Volver al panel
                   </Button>
+
+                  <Button
+                    variant="info"
+                    href="/admin/productos/ofertas"
+                    className="me-2"
+                  >
+                    Gestionar Ofertas
+                  </Button>
+
                   <Button variant="primary" href="/admin/productos/crear">
                     Crear Producto
                   </Button>
@@ -147,7 +235,7 @@ export default function AdminProductosPage() {
                   </thead>
                   <tbody>
                     {productos.map((p, idx) => (
-                      <tr key={p.id}>
+                      <tr key={p.id ?? p._id ?? idx}>
                         <td style={{ width: 40 }}>{idx + 1}</td>
                         <td style={{ width: 90 }}>
                           {p.imagen ? (
@@ -192,8 +280,6 @@ export default function AdminProductosPage() {
                           >
                             Ver
                           </Button>
-
-                          {/* Editar button removed as requested */}
 
                           <Button
                             variant="danger"
