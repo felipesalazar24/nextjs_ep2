@@ -7,22 +7,27 @@ import {
   Col,
   Card,
   Table,
+  Form,
   Button,
   Badge,
   Alert,
   Spinner,
+  Modal,
 } from "react-bootstrap";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useAuth } from "../../../context/AuthContext";
 
 /**
- * Página administrativa de Ofertas dentro de: app/admin/productos/ofertas/page.jsx
+ * Página administrativa de Ofertas (app/admin/productos/ofertas/page.jsx)
  *
- * Mejoras:
- * - No redirige inmediatamente al login si user aún está indefinido (auth cargando).
- * - Si user === null espera un breve timeout antes de redirigir (se cancela si user se setea).
- * - Detección de admin robusta (user.role, user.rol, user.isAdmin, etc).
+ * - Requiere usuario admin (detección flexible).
+ * - Lista ofertas (server + localStorage fallback).
+ * - Permite crear oferta (modal): seleccionar producto, porcentaje o precio fijo.
+ * - Crea la oferta vía POST /api/offers (cae a localStorage si falla).
+ * - Permite eliminar oferta vía DELETE /api/offers/[id] (y limpiar localStorage).
+ *
+ * Copia y pega este archivo en app/admin/productos/ofertas/page.jsx
  */
 
 function userIsAdmin(user) {
@@ -50,7 +55,7 @@ function userIsAdmin(user) {
   return false;
 }
 
-export default function AdminProductOffersPage() {
+export default function AdminOffersPage() {
   const { user } = useAuth();
   const router = useRouter();
 
@@ -60,14 +65,20 @@ export default function AdminProductOffersPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
+  const [showCreateModal, setShowCreateModal] = useState(false);
+  const [modalProductId, setModalProductId] = useState("");
+  const [modalType, setModalType] = useState("percent"); // 'percent' | 'price'
+  const [modalValue, setModalValue] = useState("");
+  const [modalError, setModalError] = useState(null);
+  const [modalSaving, setModalSaving] = useState(false);
+  const [successMsg, setSuccessMsg] = useState(null);
+
   const isAdmin = useMemo(() => userIsAdmin(user), [user]);
 
-  // Si user === null (no logueado) esperamos un corto timeout antes de redirigir.
-  // Esto evita redirecciones falsas mientras el auth-context se hidrata (user === undefined).
+  // Avoid immediate redirect while auth context hydrates.
   useEffect(() => {
     let t;
     if (user === null) {
-      // espera 1200ms antes de redirigir; durante ese tiempo user puede actualizarse.
       t = setTimeout(() => {
         router.push("/login");
       }, 1200);
@@ -77,7 +88,7 @@ export default function AdminProductOffersPage() {
     };
   }, [user, router]);
 
-  // Load products + server offers + local created offers (fallback)
+  // Load products and offers
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -91,7 +102,7 @@ export default function AdminProductOffersPage() {
 
         if (!pRes.ok) {
           const data = await pRes.json().catch(() => ({}));
-          throw new Error(data.error || "Error al obtener productos");
+          throw new Error(data.error || "Error al cargar productos");
         }
         const prodData = await pRes.json().catch(() => []);
         let offersData = [];
@@ -126,6 +137,7 @@ export default function AdminProductOffersPage() {
     };
   }, []);
 
+  // Combine offers from server and local created offers (admin)
   const ofertas = useMemo(() => {
     const map = new Map();
 
@@ -170,16 +182,126 @@ export default function AdminProductOffersPage() {
     return arr;
   }, [serverOffers, createdOffers, productos]);
 
+  const openCreateModal = () => {
+    setModalProductId("");
+    setModalType("percent");
+    setModalValue("");
+    setModalError(null);
+    setShowCreateModal(true);
+  };
+
+  const closeCreateModal = () => {
+    setShowCreateModal(false);
+    setModalProductId("");
+    setModalType("percent");
+    setModalValue("");
+    setModalError(null);
+  };
+
+  // Create offer: try POST /api/offers, fallback to localStorage
+  const submitCreateOffer = async () => {
+    setModalError(null);
+    if (!modalProductId) {
+      setModalError("Selecciona un producto");
+      return;
+    }
+    const producto = productos.find(
+      (p) => String(p.id ?? p._id ?? p.sku) === String(modalProductId)
+    );
+    if (!producto) {
+      setModalError("Producto no válido");
+      return;
+    }
+    const basePrice = Number(producto.precio || 0);
+    if (!basePrice || basePrice <= 0) {
+      setModalError("El producto no tiene precio válido");
+      return;
+    }
+
+    const v = Number(modalValue);
+    let newPrice = null;
+    let percent = null;
+
+    if (modalType === "percent") {
+      if (isNaN(v) || v <= 0 || v >= 100) {
+        setModalError("Ingresa porcentaje válido (1-99)");
+        return;
+      }
+      percent = Math.round(v);
+      newPrice = Math.round(basePrice * (1 - percent / 100));
+    } else {
+      if (isNaN(v) || v <= 0 || v >= basePrice) {
+        setModalError("Ingresa precio válido menor al precio original");
+        return;
+      }
+      newPrice = Math.round(v);
+      percent = Math.round(((basePrice - newPrice) / basePrice) * 100);
+    }
+
+    const offerRecord = {
+      productId: String(modalProductId),
+      newPrice,
+      percent,
+      oldPrice: basePrice,
+      createdAt: new Date().toISOString(),
+    };
+
+    setModalSaving(true);
+    let saved = false;
+    try {
+      const res = await fetch("/api/offers", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(offerRecord),
+      });
+      if (res.ok) {
+        const json = await res.json().catch(() => null);
+        if (json && json.record) {
+          setServerOffers((prev) => [...(prev || []), json.record]);
+        } else {
+          setServerOffers((prev) => [...(prev || []), offerRecord]);
+        }
+        saved = true;
+      } else {
+        console.warn("POST /api/offers responded:", res.status);
+      }
+    } catch (err) {
+      console.warn("Error POST /api/offers:", err);
+    }
+
+    if (!saved) {
+      // fallback to localStorage
+      try {
+        const raw = localStorage.getItem("createdOffers");
+        const parsed = raw ? JSON.parse(raw) : [];
+        parsed.push(offerRecord);
+        localStorage.setItem("createdOffers", JSON.stringify(parsed));
+        setCreatedOffers(parsed);
+        saved = true;
+      } catch (err) {
+        console.error("No se pudo almacenar oferta en localStorage", err);
+        setModalError("No se pudo guardar la oferta (ver consola)");
+        setModalSaving(false);
+        return;
+      }
+    }
+
+    if (saved) {
+      setSuccessMsg("Oferta creada correctamente");
+      setTimeout(() => setSuccessMsg(null), 3000);
+      closeCreateModal();
+    }
+    setModalSaving(false);
+  };
+
   const handleDeleteOffer = async (productId) => {
     const pid = String(productId);
+    // optimistic updates
     setServerOffers((prev) =>
       (prev || []).filter((o) => String(o.productId) !== pid)
     );
-    const stored =
-      typeof window !== "undefined"
-        ? localStorage.getItem("createdOffers")
-        : null;
     try {
+      const stored = localStorage.getItem("createdOffers");
       const parsed = stored ? JSON.parse(stored) : [];
       const filtered = parsed.filter((o) => String(o.productId) !== pid);
       localStorage.setItem("createdOffers", JSON.stringify(filtered));
@@ -187,7 +309,6 @@ export default function AdminProductOffersPage() {
     } catch (err) {
       console.warn("Error updating localStorage", err);
     }
-
     try {
       await fetch(`/api/offers/${encodeURIComponent(pid)}`, {
         method: "DELETE",
@@ -197,7 +318,7 @@ export default function AdminProductOffersPage() {
     }
   };
 
-  // Mientras auth se está cargando (user === undefined) mostramos spinner para evitar denegación temprana
+  // auth states handling
   if (typeof user === "undefined") {
     return (
       <Container className="py-5 text-center">
@@ -206,10 +327,9 @@ export default function AdminProductOffersPage() {
     );
   }
 
-  // Si user === null el useEffect anterior lanzará redirección tras el timeout; mostramos aviso mientras tanto
   if (user === null) {
     return (
-      <Container className="py-5 text-center">
+      <Container className="py-5">
         <Alert variant="warning">
           Comprobando sesión... serás redirigido al login si no hay sesión.
         </Alert>
@@ -217,7 +337,6 @@ export default function AdminProductOffersPage() {
     );
   }
 
-  // Si user existe pero no es admin mostramos acceso denegado
   if (!isAdmin) {
     return (
       <Container className="py-5">
@@ -249,11 +368,14 @@ export default function AdminProductOffersPage() {
           <Link href="/admin/productos" className="btn btn-outline-secondary">
             Volver a Productos
           </Link>
-          <Link href="/admin/productos/ofertas" className="btn btn-primary">
-            Crear / Gestionar Ofertas
-          </Link>
+          <Button variant="primary" onClick={openCreateModal}>
+            Crear Oferta
+          </Button>
         </div>
       </div>
+
+      {successMsg && <Alert variant="success">{successMsg}</Alert>}
+      {error && <Alert variant="danger">{error}</Alert>}
 
       <Card className="mb-4">
         <Card.Body>
@@ -325,7 +447,7 @@ export default function AdminProductOffersPage() {
                       <div className="d-flex gap-2">
                         <Link
                           href={`/productos/${o.product.id}`}
-                          className="btn btn-outline-sm btn-outline-dark btn-sm"
+                          className="btn btn-outline-dark btn-sm"
                         >
                           Ver
                         </Link>
@@ -345,6 +467,90 @@ export default function AdminProductOffersPage() {
           )}
         </Card.Body>
       </Card>
+
+      {/* Modal Crear Oferta */}
+      <Modal show={showCreateModal} onHide={closeCreateModal} centered>
+        <Modal.Header closeButton>
+          <Modal.Title>Crear Oferta</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          {modalError && <Alert variant="danger">{modalError}</Alert>}
+
+          <Form>
+            <Form.Group className="mb-3">
+              <Form.Label>Producto</Form.Label>
+              <Form.Select
+                value={modalProductId}
+                onChange={(e) => setModalProductId(e.target.value)}
+              >
+                <option value="">Selecciona un producto</option>
+                {productos.map((p) => (
+                  <option
+                    key={String(p.id ?? p._id ?? p.sku ?? p.nombre)}
+                    value={String(p.id ?? p._id ?? p.sku ?? p.nombre)}
+                  >
+                    {p.nombre} — $
+                    {Number(p.precio || 0).toLocaleString("es-CL")}
+                  </option>
+                ))}
+              </Form.Select>
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>Tipo de oferta</Form.Label>
+              <div>
+                <Form.Check
+                  inline
+                  label="Porcentaje (%)"
+                  name="tipo"
+                  type="radio"
+                  id="tipo-percent"
+                  checked={modalType === "percent"}
+                  onChange={() => setModalType("percent")}
+                />
+                <Form.Check
+                  inline
+                  label="Precio fijo"
+                  name="tipo"
+                  type="radio"
+                  id="tipo-price"
+                  checked={modalType === "price"}
+                  onChange={() => setModalType("price")}
+                />
+              </div>
+            </Form.Group>
+
+            <Form.Group className="mb-3">
+              <Form.Label>
+                {modalType === "percent"
+                  ? "Porcentaje de descuento (%)"
+                  : "Nuevo precio (ej: 19990)"}
+              </Form.Label>
+              <Form.Control
+                value={modalValue}
+                onChange={(e) => setModalValue(e.target.value)}
+                placeholder={modalType === "percent" ? "10" : "19990"}
+              />
+            </Form.Group>
+          </Form>
+        </Modal.Body>
+        <Modal.Footer>
+          <Button
+            variant="secondary"
+            onClick={closeCreateModal}
+            disabled={modalSaving}
+          >
+            Cancelar
+          </Button>
+          <Button
+            variant="primary"
+            onClick={submitCreateOffer}
+            disabled={modalSaving}
+          >
+            {modalSaving ? "Guardando..." : "Crear Oferta"}
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </Container>
   );
 }
