@@ -1,122 +1,158 @@
-// app/categoria/page.jsx
-'use client';
+"use client";
 
-import { Container, Row, Col, Card, Button } from 'react-bootstrap';
-import Link from 'next/link';
+import React, { useMemo } from "react";
+import { Container, Row, Col, Card, Button } from "react-bootstrap";
+import Link from "next/link";
+import { getProductos } from "../../lib/products"; // desde app/categoria -> ../../lib/products
 
-const categorias = [
-    {
-        id: 'mouse',
-        nombre: 'Mouse Gaming',
-        descripcion: 'Precisión y velocidad para gamers profesionales',
-        imagen: '/assets/productos/M1.jpg',
-        cantidadProductos: 3,
-        color: 'primary'
-    },
-    {
-        id: 'teclado',
-        nombre: 'Teclados Mecánicos',
-        descripcion: 'Respuesta táctil y durabilidad excepcional',
-        imagen: '/assets/productos/T1.jpg',
-        cantidadProductos: 3,
-        color: 'success'
-    },
-    {
-        id: 'audifono',
-        nombre: 'Audífonos Gaming',
-        descripcion: 'Sonido envolvente y comodidad para largas sesiones',
-        imagen: '/assets/productos/A1.jpg',
-        cantidadProductos: 3,
-        color: 'warning'
-    },
-    {
-        id: 'monitor',
-        nombre: 'Monitores Gaming',
-        descripcion: 'Alta tasa de refresco y colores vibrantes',
-        imagen: '/assets/productos/MO1.jpg',
-        cantidadProductos: 3,
-        color: 'info'
-    }
+// Configuración visual y textos por categoría
+const CATEGORIES = [
+  {
+    key: "mouse",
+    title: "Mouse Gaming",
+    description: "Precisión y velocidad para gamers profesionales",
+    btnVariant: "primary",
+  },
+  {
+    key: "teclado",
+    title: "Teclados Mecánicos",
+    description: "Respuesta táctil y durabilidad excepcional",
+    btnVariant: "success",
+  },
+  {
+    key: "audifono",
+    title: "Audífonos Gaming",
+    description: "Sonido envolvente y comodidad para largas sesiones",
+    btnVariant: "warning",
+  },
+  {
+    key: "monitor",
+    title: "Monitores Gaming",
+    description: "Alta tasa de refresco y colores vibrantes",
+    btnVariant: "dark",
+  },
 ];
 
-export default function CategoriasPage() {
-    return (
-        <Container className="py-4">
-            {/* Header */}
-            <div className="text-center mb-5">
-                <h1 className="display-5 fw-bold text-dark mb-3">Categorías de Productos</h1>
-                <p className="lead text-muted">
-                    Explora nuestra selección organizada por tipo de producto
-                </p>
+export default function CategoriasIndexPage() {
+  // cargar todos los productos (wrapper síncrono que lee data/productos.json)
+  const productos = useMemo(() => {
+    try {
+      return Array.isArray(getProductos()) ? getProductos() : [];
+    } catch {
+      return [];
+    }
+  }, []);
+
+  // calcular conteo e imagen representativa por categoría
+  const stats = useMemo(() => {
+    const map = {};
+    // inicializar keys con 0
+    for (const c of CATEGORIES) {
+      map[c.key] = { count: 0, image: null };
+    }
+    for (const p of productos) {
+      const key = String(p.atributo || p.categoria || "").toLowerCase();
+      if (!map[key]) continue;
+      map[key].count += 1;
+      if (!map[key].image && p.imagen) map[key].image = p.imagen;
+    }
+    return map;
+  }, [productos]);
+
+  return (
+    <Container className="py-4">
+      <div className="text-center mb-4">
+        <h1 className="display-5 fw-bold">Categorías</h1>
+        <p className="text-muted">Explora por tipo de producto</p>
+      </div>
+
+      <Row className="g-4">
+        {CATEGORIES.map((cat) => {
+          const stat = stats[cat.key] || { count: 0, image: null };
+          // prioridad: imagen representativa de productos > asset estático en /assets/category > placeholder
+          const imgSrc =
+            stat.image ||
+            `/assets/category/${cat.key}.png` ||
+            "https://via.placeholder.com/400x300?text=Categoria";
+          const countLabel = `${stat.count} producto${
+            stat.count === 1 ? "" : "s"
+          }`;
+
+          return (
+            <Col key={cat.key} md={6} lg={3}>
+              <Card className="h-100 shadow-sm">
+                <div style={{ position: "relative" }}>
+                  <Card.Img
+                    variant="top"
+                    src={imgSrc}
+                    style={{
+                      height: 240,
+                      objectFit: "contain",
+                      padding: 20,
+                      background: "#fff",
+                    }}
+                    onError={(e) => {
+                      e.target.src =
+                        "https://via.placeholder.com/400x300/ffffff/cccccc?text=Imagen+Categoría";
+                    }}
+                  />
+                  <div
+                    style={{
+                      position: "absolute",
+                      top: 12,
+                      left: 12,
+                      zIndex: 5,
+                      background: "#0d6efd",
+                      color: "#fff",
+                      padding: "6px 10px",
+                      borderRadius: 999,
+                      fontSize: 12,
+                    }}
+                  >
+                    {countLabel}
+                  </div>
+                </div>
+
+                <Card.Body className="d-flex flex-column">
+                  <h5 className="mb-1 text-center">{cat.title}</h5>
+                  <p className="text-muted text-center small mb-3">
+                    {cat.description}
+                  </p>
+
+                  <div className="mt-auto d-grid">
+                    <Link
+                      href={`/categoria/${String(cat.key).toLowerCase()}`}
+                      className={`btn btn-${cat.btnVariant}`}
+                    >
+                      Explorar Categoría
+                    </Link>
+                  </div>
+                </Card.Body>
+              </Card>
+            </Col>
+          );
+        })}
+      </Row>
+      {/* Información adicional */}
+      <Row className="mt-5">
+        <Col className="text-center">
+          <div className="bg-light rounded p-4">
+            <h3 className="h4 mb-3">¿No encuentras lo que buscas?</h3>
+            <p className="text-muted mb-3">
+              Explora todos nuestros productos o contáctanos para asistencia
+              personalizada
+            </p>
+            <div className="d-flex gap-3 justify-content-center">
+              <Link href="/productos" className="btn btn-primary">
+                Ver Todos los Productos
+              </Link>
+              <Link href="/contacto" className="btn btn-outline-secondary">
+                Contactar Soporte
+              </Link>
             </div>
-
-            {/* Grid de categorías */}
-            <Row className="g-4">
-                {categorias.map(categoria => (
-                    <Col key={categoria.id} xs={12} sm={6} lg={3}>
-                        <Card className="h-100 shadow-sm border-0 category-card">
-                            <div className="position-relative">
-                                <Card.Img 
-                                    variant="top" 
-                                    src={categoria.imagen}
-                                    alt={categoria.nombre}
-                                    style={{ 
-                                        height: '200px', 
-                                        objectFit: 'cover'
-                                    }}
-                                    onError={(e) => {
-                                        e.target.src = 'https://via.placeholder.com/300x200/cccccc/969696?text=Categoría';
-                                    }}
-                                />
-                                <div className={`position-absolute top-0 start-0 m-2 badge bg-${categoria.color}`}>
-                                    {categoria.cantidadProductos} productos
-                                </div>
-                            </div>
-                            
-                            <Card.Body className="d-flex flex-column">
-                                <Card.Title className="h5 text-center">
-                                    {categoria.nombre}
-                                </Card.Title>
-                                
-                                <Card.Text className="text-muted text-center flex-grow-1">
-                                    {categoria.descripcion}
-                                </Card.Text>
-                                
-                                <div className="mt-auto">
-                                    <div className="d-grid">
-                                        <Link 
-                                            href={`/categoria/${categoria.id}`}
-                                            className={`btn btn-${categoria.color} btn-sm`}
-                                        >
-                                            Explorar Categoría
-                                        </Link>
-                                    </div>
-                                </div>
-                            </Card.Body>
-                        </Card>
-                    </Col>
-                ))}
-            </Row>
-
-            {/* Información adicional */}
-            <Row className="mt-5">
-                <Col className="text-center">
-                    <div className="bg-light rounded p-4">
-                        <h3 className="h4 mb-3">¿No encuentras lo que buscas?</h3>
-                        <p className="text-muted mb-3">
-                            Explora todos nuestros productos o contáctanos para asistencia personalizada
-                        </p>
-                        <div className="d-flex gap-3 justify-content-center">
-                            <Link href="/productos" className="btn btn-primary">
-                                Ver Todos los Productos
-                            </Link>
-                            <Link href="/contacto" className="btn btn-outline-secondary">
-                                Contactar Soporte
-                            </Link>
-                        </div>
-                    </div>
-                </Col>
-            </Row>
-        </Container>
-    );
+          </div>
+        </Col>
+      </Row>
+    </Container>
+  );
 }

@@ -1,7 +1,8 @@
 "use client";
 
-import { useEffect, useState, useRef, useCallback } from "react";
+import { useEffect, useState, useRef, useCallback, useMemo } from "react";
 import { useRouter } from "next/navigation";
+import Link from "next/link";
 import {
   Container,
   Row,
@@ -12,7 +13,6 @@ import {
   Alert,
   Badge,
   Dropdown,
-  InputGroup,
   Spinner,
 } from "react-bootstrap";
 import { useAuth } from "../../../context/AuthContext";
@@ -20,6 +20,35 @@ import { useAuth } from "../../../context/AuthContext";
 
 const CATEGORIES = ["Mouse", "Teclado", "Audifono", "Monitor"];
 const STORAGE_KEY = "admin_producto_uploaded_draft";
+
+/**
+ * Función auxiliar para determinar si el usuario es admin.
+ * Se adapta a distintos shapes del objeto user (rol, role, isAdmin, admin, roles array).
+ */
+function userIsAdmin(user) {
+  if (!user) return false;
+  if (user.isAdmin === true) return true;
+  if (user.admin === true) return true;
+  const role = (user.role || user.rol || user.roleName || "")
+    .toString()
+    .toLowerCase();
+  if (role === "admin" || role === "administrator") return true;
+  if (
+    Array.isArray(user.roles) &&
+    user.roles.some((r) => String(r).toLowerCase() === "admin")
+  )
+    return true;
+  if (
+    Array.isArray(user.permissions) &&
+    (user.permissions.includes("admin") || user.permissions.includes("ADMIN"))
+  )
+    return true;
+  const nameCheck = (user.name || user.nombre || user.displayName || "")
+    .toString()
+    .toLowerCase();
+  if (nameCheck.includes("admin")) return true;
+  return false;
+}
 
 export default function CrearProductoPage() {
   const auth = useAuth();
@@ -100,6 +129,22 @@ export default function CrearProductoPage() {
   const [catsOpen, setCatsOpen] = useState(false);
 
   const [manualOpen, setManualOpen] = useState(false);
+
+  // ---------- AUTH HOOKS: MUST BE DECLARED BEFORE ANY EARLY RETURNS ----------
+  // compute isAdmin unconditionally (hook order stable)
+  const isAdmin = useMemo(() => userIsAdmin(auth.user), [auth.user]);
+
+  // schedule redirect if user is explicitly null (with a short delay to avoid false redirects while auth hydrates)
+  useEffect(() => {
+    let t;
+    if (auth.user === null) {
+      t = setTimeout(() => router.push("/login"), 1200);
+    }
+    return () => {
+      if (t) clearTimeout(t);
+    };
+  }, [auth.user, router]);
+  // ------------------------------------------------------------------------
 
   // Al montar: cargar estado guardado (si existe)
   useEffect(() => {
@@ -487,17 +532,7 @@ export default function CrearProductoPage() {
     }));
   };
 
-  useEffect(() => {
-    // si el provider aún no terminó la lectura inicial, esperar
-    if (auth.hydrated === false) return;
-
-    // una vez hidratado, si no hay usuario o no es admin, redirigir
-    if (!auth.user || !(auth.user.rol === "admin" || auth.user.isAdmin)) {
-      router.push("/login");
-    }
-  }, [auth.hydrated, auth.user, router]);
-
-  // mostrar loading mientras auth se hidrata para evitar redirección prematura
+  // --- AUTH-BASED RENDERING / EARLY RETURNS (hooks above ensure stable order) ---
   if (auth.hydrated === false) {
     return (
       <Container className="py-5 text-center">
@@ -508,6 +543,36 @@ export default function CrearProductoPage() {
       </Container>
     );
   }
+
+  // If auth.user === null show transient message while redirect scheduled by useEffect
+  if (auth.user === null) {
+    return (
+      <Container className="py-5 text-center">
+        <Alert variant="warning">
+          Comprobando sesión... serás redirigido al login si no hay sesión.
+        </Alert>
+      </Container>
+    );
+  }
+
+  // If user exists but is not admin show access denied (link to home)
+  if (auth.user && !isAdmin) {
+    return (
+      <Container className="py-5">
+        <Alert variant="danger" className="mb-3">
+          Acceso denegado. Necesitas permisos de administrador para ver esta
+          página.
+        </Alert>
+
+        <div>
+          <Link href="/" className="btn btn-secondary">
+            Volver al inicio
+          </Link>
+        </div>
+      </Container>
+    );
+  }
+  // --- END AUTH GUARD ---
 
   return (
     <Container className="py-5">
@@ -771,10 +836,10 @@ export default function CrearProductoPage() {
                   </div>
                 </Form.Group>
 
-                {/** Manual routes area **/}
+                {/** Manual routes area (read-only now) **/}
                 <Form.Group className="mb-3">
                   <div className="d-flex justify-content-between align-items-center mb-2">
-                    <Form.Label className="mb-0">Rutas manuales</Form.Label>
+                    <Form.Label className="mb-0">Rutas</Form.Label>
                     <div>
                       <Button
                         type="button"
@@ -782,9 +847,7 @@ export default function CrearProductoPage() {
                         size="sm"
                         onClick={() => setManualOpen((v) => !v)}
                       >
-                        {manualOpen
-                          ? "Ocultar rutas"
-                          : "Mostrar rutas manuales"}
+                        {manualOpen ? "Ocultar rutas" : "Mostrar rutas"}
                       </Button>
                     </div>
                   </div>
@@ -798,27 +861,28 @@ export default function CrearProductoPage() {
                       }}
                     >
                       <Form.Group className="mb-3">
-                        <Form.Label>Imagen principal (ruta)</Form.Label>
-                        <InputGroup>
-                          <Form.Control
-                            type="text"
-                            name="imagen"
-                            value={form.imagen}
-                            onChange={(e) => {
-                              handleChange(e);
-                              setManualTouched(true);
-                            }}
-                            placeholder="Ej: /assets/productos/MX.jpg"
-                          />
-                          <Button
-                            type="button"
-                            variant="light"
-                            onClick={() => restoreDefaults()}
-                            style={{ marginLeft: 6 }}
-                          >
-                            reset
-                          </Button>
-                        </InputGroup>
+                        <Form.Label>Imagen principal</Form.Label>
+
+                        {/* READ-ONLY: mostrar la ruta en plaintext sin input ni reset */}
+                        <div
+                          className="form-control-plaintext p-2"
+                          style={{
+                            border: "1px solid #e9ecef",
+                            borderRadius: 4,
+                            minHeight: 38,
+                            background: "#fff",
+                            display: "flex",
+                            alignItems: "center",
+                            wordBreak: "break-all",
+                          }}
+                        >
+                          {form.imagen || uploaded.imagen || (
+                            <span className="text-muted">
+                              Ej: /assets/productos/MX.jpg
+                            </span>
+                          )}
+                        </div>
+
                         <Form.Text className="text-muted">
                           Se actualizará automáticamente cuando subas por drag
                           &amp; drop.
@@ -826,34 +890,35 @@ export default function CrearProductoPage() {
                       </Form.Group>
 
                       <Form.Group className="mb-3">
-                        <Form.Label>
-                          Miniaturas (cada ruta en su propio campo)
-                        </Form.Label>
+                        <Form.Label>Miniaturas</Form.Label>
 
-                        {(form.miniaturasList || []).map((m, idx) => (
-                          <InputGroup className="mb-2" key={`mini-${idx}`}>
-                            <Form.Control
-                              type="text"
-                              value={m}
-                              onChange={(e) =>
-                                updateMiniaturaField(idx, e.target.value)
-                              }
-                              placeholder="/assets/productos/MX.1.jpg"
-                            />
-                            <Button
-                              type="button"
-                              variant="light"
-                              onClick={() => restoreMiniaturaAt(idx)}
+                        {/* READ-ONLY: mostrar miniaturas como lista de plaintext (sin inputs ni reset) */}
+                        {Array.isArray(form.miniaturasList) &&
+                        form.miniaturasList.length > 0 ? (
+                          form.miniaturasList.map((m, idx) => (
+                            <div
+                              key={`mini-read-${idx}`}
+                              className="form-control-plaintext p-2 mb-2"
+                              style={{
+                                border: "1px solid #e9ecef",
+                                borderRadius: 4,
+                                background: "#fff",
+                                wordBreak: "break-all",
+                              }}
                             >
-                              reset
-                            </Button>
-                          </InputGroup>
-                        ))}
+                              {m}
+                            </div>
+                          ))
+                        ) : (
+                          <div className="text-muted small">
+                            No hay miniaturas configuradas (se llenará tras la
+                            subida).
+                          </div>
+                        )}
 
                         <Form.Text className="text-muted d-block mt-2">
-                          Cada miniatura debe ser una ruta accesible (p. ej.
-                          /assets/productos/X.jpg). Usa 'reset' para volver a
-                          las rutas generadas automáticamente por la subida.
+                          Cada miniatura se va a guardar en
+                          /assets/productos(nombre imagen).jpg.
                         </Form.Text>
                       </Form.Group>
                     </div>
