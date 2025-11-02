@@ -9,20 +9,13 @@ import {
   Table,
   Button,
   Badge,
-  Spinner,
 } from "react-bootstrap";
 import { useRouter, useSearchParams } from "next/navigation";
 
 /**
- * Página de pago fallido
- * - Igual a la versión de éxito, pero para el intento fallido.
- * - Carga ofertas (GET /api/offers + fallback localStorage.createdOffers) inline
- *   para poder mostrar en la tabla:
- *     * Precio: muestra el precio original (oldPrice) struck-through si aplica oferta
- *     * Oferta: columna entre Precio y Cantidad que muestra % (badge) o '-' si no aplica
- *     * Subtotal: calculado con el precio efectivo (precio de oferta si aplica)
- *
- * Pegar en: app/checkout/failed/page.jsx
+ * Página de pago fallido (Client Component)
+ * - Esta página usa useSearchParams / sessionStorage, por eso debe ser un Client Component.
+ * - Pegar / reemplazar en: app/checkout/failed/page.jsx
  */
 
 const loadOffers = async () => {
@@ -61,7 +54,6 @@ const loadOffers = async () => {
 
 const getOfferForProduct = (offersMap, product) => {
   if (!offersMap || !product) return null;
-  // support different id names that may exist in order item
   const pid = String(
     product.id ??
       product.productId ??
@@ -101,18 +93,15 @@ export default function CheckoutFailedPage() {
 
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem("lastFailedOrder");
+      const raw =
+        typeof window !== "undefined" &&
+        sessionStorage.getItem("lastFailedOrder");
       if (raw) {
         const parsed = JSON.parse(raw);
-        if (!orderIdParam || parsed.id === orderIdParam) {
-          setAttempt(parsed);
-        } else {
-          // si no coincide, aún así mostrar el stored attempt
-          setAttempt(parsed);
-        }
+        setAttempt(parsed);
       }
     } catch (err) {
-      // ignore
+      // ignore parse errors
     }
   }, [orderIdParam]);
 
@@ -206,7 +195,7 @@ export default function CheckoutFailedPage() {
                             1;
 
                           return (
-                            <tr key={it.id}>
+                            <tr key={it.id ?? `${it.nombre}-${Math.random()}`}>
                               <td style={{ width: 80 }}>
                                 {it.imagen ? (
                                   <img
@@ -237,9 +226,9 @@ export default function CheckoutFailedPage() {
                                     )}
                                   </span>
                                 ) : (
-                                  `$${Number(it.precio || 0).toLocaleString(
-                                    "es-CL"
-                                  )}`
+                                  `$${Number(
+                                    it.precio || it.price || 0
+                                  ).toLocaleString("es-CL")}`
                                 )}
                               </td>
 
@@ -258,7 +247,9 @@ export default function CheckoutFailedPage() {
                               <td className="text-end">
                                 $
                                 {(
-                                  Number(ef.price || it.precio || 0) * qty || 0
+                                  Number(
+                                    ef.price || it.precio || it.price || 0
+                                  ) * qty || 0
                                 ).toLocaleString("es-CL")}
                               </td>
                             </tr>
