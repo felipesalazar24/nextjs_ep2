@@ -10,7 +10,7 @@ import {
   Button,
   Breadcrumb,
   Badge,
-  Spinner, // <-- agregado
+  Spinner,
 } from "react-bootstrap";
 import { useParams } from "next/navigation";
 import { useCart } from "../../context/CartContext";
@@ -49,8 +49,8 @@ const CATEGORIES = [
  * - Se añadió la lógica local de ofertas (no se crean archivos nuevos).
  * - loadOffers obtiene /api/offers y fallback a localStorage.createdOffers.
  * - getOfferForProduct / getEffectivePrice calculan precio efectivo y %.
- * - Solo se añadieron las partes necesarias para mostrar precio tachado, precio oferta y badge %
- *   dentro de las tarjetas de productos de la categoría. El resto del layout se preservó.
+ * - safeSrc ha sido ajustada para NO convertir rutas relativas a URLs absolutas,
+ *   evitando así mismatches de hidratación SSR/client.
  */
 
 const loadOffers = async () => {
@@ -109,9 +109,28 @@ const getEffectivePrice = (product, offer) => {
   return { oldPrice: oldPrice || null, price, percent: percent || 0 };
 };
 
+/**
+ * safeSrc (IMPORTANT)
+ * - Devuelve exactamente la misma cadena tanto en servidor como en cliente.
+ * - No convierte rutas relativas a URL absolutas con `window` o `new URL`,
+ *   evitando así mismatches de hidratación.
+ * - Acepta data: y http(s) absoluto; en otros casos devuelve la ruta tal cual.
+ */
+const safeSrc = (s) => {
+  if (!s) return "/assets/productos/placeholder.png";
+  try {
+    const str = String(s);
+    if (str.startsWith("data:") || /^https?:\/\//i.test(str)) return str;
+    // Return the path as-is (relative paths stay relative)
+    return str;
+  } catch {
+    return "/assets/productos/placeholder.png";
+  }
+};
+
 export default function CategoriaPage() {
   const params = useParams();
-  const tipoCategoria = params.tipo || "";
+  const tipoCategoria = params?.tipo ?? "";
   const productos = getProductos();
   const { addToCart } = useCart();
 
@@ -178,19 +197,6 @@ export default function CategoriaPage() {
       mounted = false;
     };
   }, []);
-
-  const safeSrc = (s) => {
-    if (!s) return "/assets/productos/placeholder.png";
-    try {
-      const str = String(s);
-      if (str.startsWith("data:")) return str;
-      if (typeof window !== "undefined" && !/^https?:\/\//i.test(str))
-        return new URL(str, window.location.origin).href;
-      return str;
-    } catch {
-      return String(s);
-    }
-  };
 
   const handleAddToCart = (product, price) => {
     try {
