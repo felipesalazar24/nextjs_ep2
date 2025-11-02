@@ -8,19 +8,19 @@ import { getById, update, remove } from "../../../../lib/jsonDb";
  */
 function extractIdFromReq(req) {
   try {
-    // req.url es la URL completa; la parte pathname contiene /api/productos/:id
     const url = new URL(req.url);
-    const parts = url.pathname.split("/").filter(Boolean); // ['api','productos','123']
+    const parts = url.pathname.split("/").filter(Boolean);
     const last = parts[parts.length - 1];
     const id = parseInt(String(last || ""), 10);
     return Number.isNaN(id) ? null : id;
-  } catch (err) {
+  } catch (e) {
+    console.error("extractIdFromReq error:", e);
     return null;
   }
 }
 
 // GET /api/productos/:id
-export async function GET(req, context) {
+export async function GET(req) {
   const id = extractIdFromReq(req);
   if (id === null) {
     return NextResponse.json({ error: "id inválido" }, { status: 400 });
@@ -35,14 +35,14 @@ export async function GET(req, context) {
       );
     }
     return NextResponse.json(item);
-  } catch (err) {
-    console.error("GET /api/productos/[id] error:", err);
+  } catch (e) {
+    console.error("GET /api/productos/[id] error:", e);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }
 
 // PUT /api/productos/:id
-export async function PUT(req, context) {
+export async function PUT(req) {
   const id = extractIdFromReq(req);
   if (id === null) {
     return NextResponse.json({ error: "id inválido" }, { status: 400 });
@@ -58,12 +58,12 @@ export async function PUT(req, context) {
       );
     }
     return NextResponse.json(updated);
-  } catch (err) {
-    console.error("PUT /api/productos/[id] error:", err);
+  } catch (e) {
+    console.error("PUT /api/productos/[id] error:", e);
     return NextResponse.json(
       {
         error: "Payload inválido o error interno",
-        details: String(err?.message || err),
+        details: String(e?.message || e),
       },
       { status: 400 }
     );
@@ -71,7 +71,7 @@ export async function PUT(req, context) {
 }
 
 // DELETE /api/productos/:id
-export async function DELETE(req, context) {
+export async function DELETE(req) {
   const id = extractIdFromReq(req);
   if (id === null) {
     return NextResponse.json({ error: "id inválido" }, { status: 400 });
@@ -86,8 +86,8 @@ export async function DELETE(req, context) {
       );
     }
     return NextResponse.json({ success: true });
-  } catch (err) {
-    console.error("DELETE /api/productos/[id] error:", err);
+  } catch (e) {
+    console.error("DELETE /api/productos/[id] error:", e);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }
