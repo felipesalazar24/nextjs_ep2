@@ -10,12 +10,13 @@ import {
   Button,
   Badge,
 } from "react-bootstrap";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 /**
  * Página de pago fallido (Client Component)
- * - Esta página usa useSearchParams / sessionStorage, por eso debe ser un Client Component.
- * - Pegar / reemplazar en: app/checkout/failed/page.jsx
+ * - Evita useSearchParams para no provocar CSR-bailout en la etapa de prerender.
+ * - Obtiene el parámetro `order` desde window.location.search dentro de useEffect.
+ * - No crea nuevos archivos (reemplaza este fichero).
  */
 
 const loadOffers = async () => {
@@ -84,27 +85,43 @@ const getEffectivePrice = (product, offer) => {
 
 export default function CheckoutFailedPage() {
   const router = useRouter();
-  const params = useSearchParams();
-  const orderIdParam = params ? params.get("order") : null;
 
+  // Estado
+  const [orderIdParam, setOrderIdParam] = useState(null);
   const [attempt, setAttempt] = useState(null);
   const [offersMap, setOffersMap] = useState(new Map());
   const [offersLoading, setOffersLoading] = useState(true);
 
+  // Leemos la query 'order' desde window.location.search en el cliente
   useEffect(() => {
     try {
-      const raw =
-        typeof window !== "undefined" &&
-        sessionStorage.getItem("lastFailedOrder");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        setAttempt(parsed);
+      if (typeof window !== "undefined") {
+        const sp = new URLSearchParams(window.location.search);
+        const order = sp.get("order");
+        setOrderIdParam(order);
+      }
+    } catch (err) {
+      // ignore
+    }
+  }, []);
+
+  // Cargamos intento desde sessionStorage (cliente)
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined") {
+        const raw = sessionStorage.getItem("lastFailedOrder");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          // Si viene orderIdParam, podrías validar coincidencia aquí
+          setAttempt(parsed);
+        }
       }
     } catch (err) {
       // ignore parse errors
     }
   }, [orderIdParam]);
 
+  // Cargar ofertas (cliente)
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -187,15 +204,16 @@ export default function CheckoutFailedPage() {
                     <tbody>
                       {Array.isArray(attempt.items) &&
                       attempt.items.length > 0 ? (
-                        attempt.items.map((it) => {
+                        attempt.items.map((it, index) => {
                           const offer = getOfferForProduct(offersMap, it);
                           const ef = getEffectivePrice(it, offer);
                           const qty =
                             Number(it.cantidad || it.quantity || it.qty || 1) ||
                             1;
+                          const key = it.id ?? `${index}-${it.nombre}`;
 
                           return (
-                            <tr key={it.id ?? `${it.nombre}-${Math.random()}`}>
+                            <tr key={key}>
                               <td style={{ width: 80 }}>
                                 {it.imagen ? (
                                   <img
@@ -211,7 +229,6 @@ export default function CheckoutFailedPage() {
                               </td>
                               <td>{it.nombre}</td>
 
-                              {/* Precio: mostrar precio original (oldPrice) strike-through cuando hay oferta */}
                               <td className="text-end">
                                 {ef && ef.oldPrice ? (
                                   <span
@@ -232,7 +249,6 @@ export default function CheckoutFailedPage() {
                                 )}
                               </td>
 
-                              {/* Oferta: mostrar % de descuento */}
                               <td className="text-center">
                                 {ef && ef.percent ? (
                                   <Badge bg="danger">-{ef.percent}%</Badge>
@@ -243,7 +259,6 @@ export default function CheckoutFailedPage() {
 
                               <td className="text-center">{qty}</td>
 
-                              {/* Subtotal: usar precio efectivo (oferta si aplica) */}
                               <td className="text-end">
                                 $
                                 {(
