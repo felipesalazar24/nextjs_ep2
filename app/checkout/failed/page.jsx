@@ -13,75 +13,13 @@ import {
 import { useRouter } from "next/navigation";
 
 /**
- * Página de pago fallido (Client Component)
- * - Evita useSearchParams para no provocar CSR-bailout en la etapa de prerender.
- * - Obtiene el parámetro `order` desde window.location.search dentro de useEffect.
- * - No crea nuevos archivos (reemplaza este fichero).
+ * Página de pago fallido
+ * Basada en la página de éxito pero con mensaje/estado de fallo.
+ * Lee los detalles del último intento guardado en sessionStorage ('lastFailedOrder')
+ * y los muestra. Incluye botones para volver a productos o al inicio.
+ *
+ * Pegar en: app/checkout/failed/page.jsx
  */
-
-const loadOffers = async () => {
-  let serverOffers = [];
-  try {
-    const res = await fetch("/api/offers").catch(() => null);
-    if (res && res.ok) serverOffers = await res.json().catch(() => []);
-  } catch (err) {
-    serverOffers = [];
-  }
-
-  let created = [];
-  try {
-    if (typeof window !== "undefined") {
-      const raw = localStorage.getItem("createdOffers");
-      created = raw ? JSON.parse(raw) : [];
-    }
-  } catch (err) {
-    created = [];
-  }
-
-  const map = new Map();
-  for (const o of serverOffers || []) {
-    const pid = String(o.productId ?? o.id ?? "").trim();
-    if (!pid) continue;
-    map.set(pid, { ...o, source: "server" });
-  }
-  for (const o of created || []) {
-    const pid = String(o.productId ?? "").trim();
-    if (!pid) continue;
-    map.set(pid, { ...o, source: "admin" });
-  }
-
-  return { offersArray: Array.from(map.values()), offersMap: map };
-};
-
-const getOfferForProduct = (offersMap, product) => {
-  if (!offersMap || !product) return null;
-  const pid = String(
-    product.id ??
-      product.productId ??
-      product._id ??
-      product.sku ??
-      product.codigo ??
-      ""
-  ).trim();
-  return offersMap.get(pid) || null;
-};
-
-const getEffectivePrice = (product, offer) => {
-  const raw =
-    Number(product.precio ?? product.price ?? product.amount ?? 0) || 0;
-  if (!offer) return { oldPrice: null, price: raw, percent: 0 };
-  const oldPrice = Number(offer.oldPrice ?? raw) || raw;
-  let price = Number(offer.newPrice ?? 0);
-  let percent = Number(offer.percent ?? 0);
-
-  if (!price && percent && oldPrice)
-    price = Math.round(oldPrice * (1 - percent / 100));
-  if (!percent && price && oldPrice)
-    percent = Math.round(((oldPrice - price) / oldPrice) * 100);
-  if (!price || price <= 0) price = raw;
-
-  return { oldPrice: oldPrice || null, price, percent: percent || 0 };
-};
 
 export default function CheckoutFailedPage() {
   const router = useRouter();

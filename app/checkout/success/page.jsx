@@ -10,71 +10,15 @@ import {
   Button,
   Badge,
 } from "react-bootstrap";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 
 /**
- * Página de compra exitosa (Client Component)
- * - No usa useSearchParams para evitar CSR-bailout durante el build.
- * - Lee el parámetro `order` desde window.location.search dentro de useEffect.
+ * Página de compra exitosa
+ * Lee los detalles del último pedido guardado en sessionStorage ('lastOrder')
+ * y los muestra. También incluye botones para imprimir o volver al home.
+ *
+ * Pegar en: app/checkout/success/page.jsx
  */
-
-const loadOffers = async () => {
-  let serverOffers = [];
-  try {
-    const res = await fetch("/api/offers").catch(() => null);
-    if (res && res.ok) serverOffers = await res.json().catch(() => []);
-  } catch (err) {
-    serverOffers = [];
-  }
-
-  let created = [];
-  try {
-    if (typeof window !== "undefined") {
-      const raw = localStorage.getItem("createdOffers");
-      created = raw ? JSON.parse(raw) : [];
-    }
-  } catch (err) {
-    created = [];
-  }
-
-  const map = new Map();
-  for (const o of serverOffers || []) {
-    const pid = String(o.productId ?? o.id ?? "").trim();
-    if (!pid) continue;
-    map.set(pid, { ...o, source: "server" });
-  }
-  for (const o of created || []) {
-    const pid = String(o.productId ?? "").trim();
-    if (!pid) continue;
-    map.set(pid, { ...o, source: "admin" });
-  }
-
-  return { offersArray: Array.from(map.values()), offersMap: map };
-};
-
-const getOfferForProduct = (offersMap, product) => {
-  if (!offersMap || !product) return null;
-  const pid = String(
-    product.id ?? product.productId ?? product._id ?? product.sku ?? ""
-  ).trim();
-  return offersMap.get(pid) || null;
-};
-
-const getEffectivePrice = (product, offer) => {
-  const raw = Number(product.precio ?? product.price ?? 0) || 0;
-  if (!offer) return { oldPrice: null, price: raw, percent: 0 };
-  const oldPrice = Number(offer.oldPrice ?? raw) || raw;
-  let price = Number(offer.newPrice ?? 0);
-  let percent = Number(offer.percent ?? 0);
-
-  if (!price && percent && oldPrice)
-    price = Math.round(oldPrice * (1 - percent / 100));
-  if (!percent && price && oldPrice)
-    percent = Math.round(((oldPrice - price) / oldPrice) * 100);
-  if (!price || price <= 0) price = raw;
-
-  return { oldPrice: oldPrice || null, price, percent: percent || 0 };
-};
 
 export default function CheckoutSuccessPage() {
   const router = useRouter();
@@ -198,72 +142,40 @@ export default function CheckoutSuccessPage() {
                     </thead>
                     <tbody>
                       {Array.isArray(order.items) && order.items.length > 0 ? (
-                        order.items.map((it, idx) => {
-                          const offer = getOfferForProduct(offersMap, it);
-                          const ef = getEffectivePrice(it, offer);
-                          const qty =
-                            Number(it.cantidad || it.quantity || it.qty || 1) ||
-                            1;
-                          const key = it.id ?? `${idx}-${it.nombre}`;
-                          return (
-                            <tr key={key}>
-                              <td style={{ width: 80 }}>
-                                {it.imagen ? (
-                                  <img
-                                    src={it.imagen}
-                                    alt={it.nombre}
-                                    style={{
-                                      width: 64,
-                                      height: 48,
-                                      objectFit: "cover",
-                                    }}
-                                  />
-                                ) : null}
-                              </td>
-                              <td>{it.nombre}</td>
-
-                              <td className="text-end">
-                                {ef && ef.oldPrice ? (
-                                  <span
-                                    style={{
-                                      textDecoration: "line-through",
-                                      color: "#777",
-                                    }}
-                                  >
-                                    $
-                                    {Number(ef.oldPrice).toLocaleString(
-                                      "es-CL"
-                                    )}
-                                  </span>
-                                ) : (
-                                  `$${Number(it.precio || 0).toLocaleString(
-                                    "es-CL"
-                                  )}`
-                                )}
-                              </td>
-
-                              <td className="text-center">
-                                {ef && ef.percent ? (
-                                  <Badge bg="danger">-{ef.percent}%</Badge>
-                                ) : (
-                                  <span className="text-muted">-</span>
-                                )}
-                              </td>
-
-                              <td className="text-center">{qty}</td>
-
-                              <td className="text-end">
-                                $
-                                {(
-                                  Number(ef.price || it.precio || 0) * qty || 0
-                                ).toLocaleString("es-CL")}
-                              </td>
-                            </tr>
-                          );
-                        })
+                        order.items.map((it) => (
+                          <tr key={it.id}>
+                            <td style={{ width: 80 }}>
+                              {it.imagen ? (
+                                <img
+                                  src={it.imagen}
+                                  alt={it.nombre}
+                                  style={{
+                                    width: 64,
+                                    height: 48,
+                                    objectFit: "cover",
+                                  }}
+                                />
+                              ) : null}
+                            </td>
+                            <td>{it.nombre}</td>
+                            <td className="text-end">
+                              ${Number(it.precio || 0).toLocaleString("es-CL")}
+                            </td>
+                            <td className="text-center">
+                              {Number(it.cantidad || 0)}
+                            </td>
+                            <td className="text-end">
+                              $
+                              {(
+                                Number(it.precio || 0) *
+                                  Number(it.cantidad || 0) || 0
+                              ).toLocaleString("es-CL")}
+                            </td>
+                          </tr>
+                        ))
                       ) : (
                         <tr>
-                          <td colSpan={6} className="text-center text-muted">
+                          <td colSpan={5} className="text-center text-muted">
                             No hay items en la orden
                           </td>
                         </tr>
@@ -285,7 +197,10 @@ export default function CheckoutSuccessPage() {
                     <Button variant="secondary" onClick={handlePrint}>
                       Imprimir boleta en PDF
                     </Button>
-                    <Button variant="outline-primary" onClick={handleHome}>
+                    <Button
+                      variant="outline-primary"
+                      onClick={() => router.push("/")}
+                    >
                       Volver al inicio
                     </Button>
                   </div>

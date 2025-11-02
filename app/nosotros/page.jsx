@@ -74,27 +74,36 @@ export default function NosotrosPage() {
           <Card className="border-0 shadow-sm">
             <Card.Header className="bg-light">
               <div className="d-flex flex-wrap gap-2">
-                <Badge
-                  bg={activeTab === "mision" ? "primary" : "outline-primary"}
-                  className="cursor-pointer"
+                <button
+                  className={`btn ${
+                    activeTab === "mision"
+                      ? "btn-primary"
+                      : "btn-outline-primary"
+                  } btn-sm`}
                   onClick={() => setActiveTab("mision")}
                 >
                   🎯 Nuestra Misión
-                </Badge>
-                <Badge
-                  bg={activeTab === "vision" ? "primary" : "outline-primary"}
-                  className="cursor-pointer"
+                </button>
+                <button
+                  className={`btn ${
+                    activeTab === "vision"
+                      ? "btn-primary"
+                      : "btn-outline-primary"
+                  } btn-sm`}
                   onClick={() => setActiveTab("vision")}
                 >
                   🔭 Nuestra Visión
-                </Badge>
-                <Badge
-                  bg={activeTab === "historia" ? "primary" : "outline-primary"}
-                  className="cursor-pointer"
+                </button>
+                <button
+                  className={`btn ${
+                    activeTab === "historia"
+                      ? "btn-primary"
+                      : "btn-outline-primary"
+                  } btn-sm`}
                   onClick={() => setActiveTab("historia")}
                 >
                   📖 Nuestra Historia
-                </Badge>
+                </button>
               </div>
             </Card.Header>
             <Card.Body className="p-4">
@@ -240,6 +249,42 @@ export default function NosotrosPage() {
                 <Col md={3}>
                   <h2 className="display-4 fw-bold">100%</h2>
                   <p>Productos Garantizados</p>
+                </Col>
+              </Row>
+            </Card.Body>
+          </Card>
+        </Col>
+      </Row>
+
+      {/* Por qué elegirnos */}
+      <Row>
+        <Col>
+          <Card className="border-0 bg-light">
+            <Card.Body className="p-5 text-center">
+              <h2 className="text-primary mb-4">¿Por Qué Elegir GameTech?</h2>
+              <Row>
+                <Col md={4}>
+                  <div className="mb-4">
+                    <div className="display-4 text-primary mb-3">⚡</div>
+                    <h5>Envío Express</h5>
+                    <p className="text-muted">
+                      Recibe tus productos en 24-48 horas
+                    </p>
+                  </div>
+                </Col>
+                <Col md={4}>
+                  <div className="mb-4">
+                    <div className="display-4 text-primary mb-3">🔧</div>
+                    <h5>Soporte Técnico</h5>
+                    <p className="text-muted">Asistencia especializada 24/7</p>
+                  </div>
+                </Col>
+                <Col md={4}>
+                  <div className="mb-4">
+                    <div className="display-4 text-primary mb-3">💎</div>
+                    <h5>Calidad Premium</h5>
+                    <p className="text-muted">Productos de primeras marcas</p>
+                  </div>
                 </Col>
               </Row>
             </Card.Body>
