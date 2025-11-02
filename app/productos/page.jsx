@@ -11,6 +11,7 @@ import {
   Spinner,
   Alert,
   Badge,
+  Pagination,
 } from "react-bootstrap";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
@@ -20,7 +21,7 @@ import { useCart } from "../context/CartContext";
  * - Carga productos y ofertas (server + localStorage fallback).
  * - Muestra en cada tarjeta un pequeño cartel de oferta cuando aplica:
  *    * precio original tachado, precio oferta destacado y porcentaje.
- * - Reutiliza una lógica simple para obtener el precio efectivo de venta.
+ * - Agrega paginación client-side (40 items por página) con controles arriba y abajo.
  */
 
 function normalizeId(v) {
@@ -48,6 +49,10 @@ export default function ProductosPage() {
   const [createdOffers, setCreatedOffers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+
+  // pagination state
+  const PAGE_SIZE = 40;
+  const [page, setPage] = useState(1);
 
   // Load data
   useEffect(() => {
@@ -81,6 +86,8 @@ export default function ProductosPage() {
         setProductos(Array.isArray(prodData) ? prodData : []);
         setServerOffers(Array.isArray(offersData) ? offersData : []);
         setCreatedOffers(Array.isArray(parsed) ? parsed : []);
+        // reset page to 1 when reloading dataset
+        setPage(1);
       } catch (err) {
         console.error(err);
         if (!mounted) return;
@@ -132,6 +139,21 @@ export default function ProductosPage() {
     return { oldPrice, newPrice, percent, source: o.source || "server" };
   };
 
+  // Pagination helpers
+  const totalPages = Math.max(
+    1,
+    Math.ceil((productos?.length || 0) / PAGE_SIZE)
+  );
+  // Keep page in bounds if products change
+  useEffect(() => {
+    if (page > totalPages) setPage(1);
+  }, [totalPages]);
+
+  const paginatedProducts = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return (productos || []).slice(start, start + PAGE_SIZE);
+  }, [productos, page]);
+
   if (loading) {
     return (
       <Container className="py-5 text-center">
@@ -176,8 +198,53 @@ export default function ProductosPage() {
 
   return (
     <Container className="py-5">
+      {/* Top pagination controls */}
+      {totalPages > 1 && (
+        <div className="d-flex justify-content-center mb-3">
+          <Pagination>
+            <Pagination.Prev
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+            />
+            {page > 3 && (
+              <>
+                <Pagination.Item onClick={() => setPage(1)}>1</Pagination.Item>
+                <Pagination.Ellipsis disabled />
+              </>
+            )}
+            {Array.from({ length: totalPages }).map((_, i) => {
+              const pageNum = i + 1;
+              if (pageNum >= page - 2 && pageNum <= page + 2) {
+                return (
+                  <Pagination.Item
+                    key={pageNum}
+                    active={pageNum === page}
+                    onClick={() => setPage(pageNum)}
+                  >
+                    {pageNum}
+                  </Pagination.Item>
+                );
+              }
+              return null;
+            })}
+            {page < totalPages - 2 && (
+              <>
+                <Pagination.Ellipsis disabled />
+                <Pagination.Item onClick={() => setPage(totalPages)}>
+                  {totalPages}
+                </Pagination.Item>
+              </>
+            )}
+            <Pagination.Next
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+            />
+          </Pagination>
+        </div>
+      )}
+
       <Row xs={1} md={3} lg={4} className="g-4">
-        {productos.map((p) => {
+        {paginatedProducts.map((p) => {
           const offer = computeOfferFor(p);
           const displayPrice = offer
             ? offer.newPrice
@@ -266,6 +333,51 @@ export default function ProductosPage() {
           );
         })}
       </Row>
+
+      {/* Bottom Pagination controls */}
+      {totalPages > 1 && (
+        <div className="d-flex justify-content-center mt-4">
+          <Pagination>
+            <Pagination.Prev
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+            />
+            {page > 3 && (
+              <>
+                <Pagination.Item onClick={() => setPage(1)}>1</Pagination.Item>
+                <Pagination.Ellipsis disabled />
+              </>
+            )}
+            {Array.from({ length: totalPages }).map((_, i) => {
+              const pageNum = i + 1;
+              if (pageNum >= page - 2 && pageNum <= page + 2) {
+                return (
+                  <Pagination.Item
+                    key={pageNum}
+                    active={pageNum === page}
+                    onClick={() => setPage(pageNum)}
+                  >
+                    {pageNum}
+                  </Pagination.Item>
+                );
+              }
+              return null;
+            })}
+            {page < totalPages - 2 && (
+              <>
+                <Pagination.Ellipsis disabled />
+                <Pagination.Item onClick={() => setPage(totalPages)}>
+                  {totalPages}
+                </Pagination.Item>
+              </>
+            )}
+            <Pagination.Next
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+            />
+          </Pagination>
+        </div>
+      )}
     </Container>
   );
 }
