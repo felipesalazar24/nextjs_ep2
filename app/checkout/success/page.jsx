@@ -1,94 +1,55 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Container, Row, Col, Card, Table, Button, Badge } from "react-bootstrap";
+import {
+  Container,
+  Row,
+  Col,
+  Card,
+  Table,
+  Button,
+  Badge,
+} from "react-bootstrap";
 import { useRouter, useSearchParams } from "next/navigation";
 
 /**
  * Página de compra exitosa
- * - Lee los detalles del último pedido guardado en sessionStorage ('lastOrder')
- * - Muestra en la tabla, por cada item:
- *     * Precio: muestra el precio original (oldPrice) cuando exista una oferta
- *     * Oferta: columna mostrando el % de descuento (badge) o '-' si no aplica
- *     * Cantidad
- *     * Subtotal: calcula usando el precio efectivo (oferta si aplica)
+ * Lee los detalles del último pedido guardado en sessionStorage ('lastOrder')
+ * y los muestra. También incluye botones para imprimir o volver al home.
  *
- * - Carga ofertas (GET /api/offers + fallback a localStorage.createdOffers) inline
- *   para poder mostrar el % y el precio original.
+ * Pegar en: app/checkout/success/page.jsx
  */
-
-const loadOffers = async () => {
-  let serverOffers = [];
-  try {
-    const res = await fetch("/api/offers").catch(() => null);
-    if (res && res.ok) serverOffers = await res.json().catch(() => []);
-  } catch (err) {
-    serverOffers = [];
-  }
-
-  let created = [];
-  try {
-    if (typeof window !== "undefined") {
-      const raw = localStorage.getItem("createdOffers");
-      created = raw ? JSON.parse(raw) : [];
-    }
-  } catch (err) {
-    created = [];
-  }
-
-  const map = new Map();
-  for (const o of serverOffers || []) {
-    const pid = String(o.productId ?? o.id ?? "").trim();
-    if (!pid) continue;
-    map.set(pid, { ...o, source: "server" });
-  }
-  for (const o of created || []) {
-    const pid = String(o.productId ?? "").trim();
-    if (!pid) continue;
-    map.set(pid, { ...o, source: "admin" });
-  }
-
-  return { offersArray: Array.from(map.values()), offersMap: map };
-};
-
-const getOfferForProduct = (offersMap, product) => {
-  if (!offersMap || !product) return null;
-  const pid = String(product.id ?? product.productId ?? product._id ?? product.sku ?? "").trim();
-  return offersMap.get(pid) || null;
-};
-
-const getEffectivePrice = (product, offer) => {
-  const raw = Number(product.precio ?? product.price ?? 0) || 0;
-  if (!offer) return { oldPrice: null, price: raw, percent: 0 };
-  const oldPrice = Number(offer.oldPrice ?? raw) || raw;
-  let price = Number(offer.newPrice ?? 0);
-  let percent = Number(offer.percent ?? 0);
-
-  if (!price && percent && oldPrice) price = Math.round(oldPrice * (1 - percent / 100));
-  if (!percent && price && oldPrice) percent = Math.round(((oldPrice - price) / oldPrice) * 100);
-  if (!price || price <= 0) price = raw;
-
-  return { oldPrice: oldPrice || null, price, percent: percent || 0 };
-};
 
 export default function CheckoutSuccessPage() {
   const router = useRouter();
-  const params = useSearchParams();
-  const orderIdParam = params ? params.get("order") : null;
 
+  // estado
+  const [orderIdParam, setOrderIdParam] = useState(null);
   const [order, setOrder] = useState(null);
   const [offersMap, setOffersMap] = useState(new Map());
   const [offersLoading, setOffersLoading] = useState(true);
 
+  // Leer la query 'order' desde window.location.search (solo en cliente)
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem("lastOrder");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (!orderIdParam || parsed.id === orderIdParam) {
-          setOrder(parsed);
-        } else {
-          // if not matching, still show stored order
+      if (typeof window !== "undefined") {
+        const sp = new URLSearchParams(window.location.search);
+        const order = sp.get("order");
+        setOrderIdParam(order);
+      }
+    } catch (err) {
+      // ignore
+    }
+  }, []);
+
+  // Cargar el último pedido desde sessionStorage (cliente)
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined") {
+        const raw = sessionStorage.getItem("lastOrder");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          // si orderIdParam viene, podrías validar coincidencia; por ahora mostramos lo almacenado
           setOrder(parsed);
         }
       }
@@ -97,6 +58,7 @@ export default function CheckoutSuccessPage() {
     }
   }, [orderIdParam]);
 
+  // Cargar ofertas (cliente)
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -118,7 +80,7 @@ export default function CheckoutSuccessPage() {
   }, []);
 
   const handlePrint = () => {
-    window.print();
+    if (typeof window !== "undefined") window.print();
   };
 
   const handleHome = () => {
@@ -134,22 +96,37 @@ export default function CheckoutSuccessPage() {
               <div className="d-flex justify-content-between align-items-start mb-3">
                 <div>
                   <h4 className="text-success">✓ Se ha realizado la compra</h4>
-                  <small className="text-muted">Código orden: {order?.id || orderIdParam || "—"}</small>
+                  <small className="text-muted">
+                    Código orden: {order?.id || orderIdParam || "—"}
+                  </small>
                 </div>
-                <Badge bg="light" text="dark">Completado</Badge>
+                <Badge bg="light" text="dark">
+                  Completado
+                </Badge>
               </div>
 
               {order ? (
                 <>
                   <h6 className="mb-2">Información del cliente</h6>
                   <Row className="mb-3">
-                    <Col md={4}><strong>Nombre:</strong> {order.customer?.nombre}</Col>
-                    <Col md={4}><strong>Correo:</strong> {order.customer?.email}</Col>
-                    <Col md={4}><strong>Teléfono:</strong> {order.customer?.telefono || "-"}</Col>
+                    <Col md={4}>
+                      <strong>Nombre:</strong> {order.customer?.nombre}
+                    </Col>
+                    <Col md={4}>
+                      <strong>Correo:</strong> {order.customer?.email}
+                    </Col>
+                    <Col md={4}>
+                      <strong>Teléfono:</strong>{" "}
+                      {order.customer?.telefono || "-"}
+                    </Col>
                   </Row>
 
                   <h6 className="mb-2">Dirección de entrega</h6>
-                  <p className="text-muted mb-3">{order.customer?.calle} {order.customer?.depto ? `, ${order.customer.depto}` : ""} — {order.customer?.comuna}, {order.customer?.region}</p>
+                  <p className="text-muted mb-3">
+                    {order.customer?.calle}{" "}
+                    {order.customer?.depto ? `, ${order.customer.depto}` : ""} —{" "}
+                    {order.customer?.comuna}, {order.customer?.region}
+                  </p>
 
                   <h6 className="mb-2">Productos</h6>
                   <Table responsive bordered size="sm" className="mb-3">
@@ -165,47 +142,42 @@ export default function CheckoutSuccessPage() {
                     </thead>
                     <tbody>
                       {Array.isArray(order.items) && order.items.length > 0 ? (
-                        order.items.map((it) => {
-                          // Determine offer based on current offersMap and product identifier in the order item
-                          const offer = getOfferForProduct(offersMap, it);
-                          const ef = getEffectivePrice(it, offer);
-                          const qty = Number(it.cantidad || it.quantity || it.qty || 1) || 1;
-
-                          return (
-                            <tr key={it.id}>
-                              <td style={{ width: 80 }}>
-                                {it.imagen ? <img src={it.imagen} alt={it.nombre} style={{ width: 64, height: 48, objectFit: "cover" }} /> : null}
-                              </td>
-                              <td>{it.nombre}</td>
-
-                              {/* Precio: mostrar precio original (oldPrice) si existe oferta, sino it.precio */}
-                              <td className="text-end">
-                                {ef && ef.oldPrice ? (
-                                  <span style={{ textDecoration: "line-through", color: "#777" }}>
-                                    ${Number(ef.oldPrice).toLocaleString("es-CL")}
-                                  </span>
-                                ) : (
-                                  `$${Number(it.precio || 0).toLocaleString("es-CL")}`
-                                )}
-                              </td>
-
-                              {/* Oferta: mostrar % de descuento */}
-                              <td className="text-center">
-                                {ef && ef.percent ? <Badge bg="danger">-{ef.percent}%</Badge> : <span className="text-muted">-</span>}
-                              </td>
-
-                              <td className="text-center">{qty}</td>
-
-                              {/* Subtotal: usar precio efectivo (ef.price) */}
-                              <td className="text-end">
-                                ${((Number(ef.price || it.precio || 0) * qty) || 0).toLocaleString("es-CL")}
-                              </td>
-                            </tr>
-                          );
-                        })
+                        order.items.map((it) => (
+                          <tr key={it.id}>
+                            <td style={{ width: 80 }}>
+                              {it.imagen ? (
+                                <img
+                                  src={it.imagen}
+                                  alt={it.nombre}
+                                  style={{
+                                    width: 64,
+                                    height: 48,
+                                    objectFit: "cover",
+                                  }}
+                                />
+                              ) : null}
+                            </td>
+                            <td>{it.nombre}</td>
+                            <td className="text-end">
+                              ${Number(it.precio || 0).toLocaleString("es-CL")}
+                            </td>
+                            <td className="text-center">
+                              {Number(it.cantidad || 0)}
+                            </td>
+                            <td className="text-end">
+                              $
+                              {(
+                                Number(it.precio || 0) *
+                                  Number(it.cantidad || 0) || 0
+                              ).toLocaleString("es-CL")}
+                            </td>
+                          </tr>
+                        ))
                       ) : (
                         <tr>
-                          <td colSpan={6} className="text-center text-muted">No hay items en la orden</td>
+                          <td colSpan={5} className="text-center text-muted">
+                            No hay items en la orden
+                          </td>
                         </tr>
                       )}
                     </tbody>
@@ -215,21 +187,42 @@ export default function CheckoutSuccessPage() {
                     <div />
                     <div className="text-end">
                       <div className="fw-bold">Total pagado</div>
-                      <div className="h4 text-primary">${Number(order.total || 0).toLocaleString("es-CL")}</div>
+                      <div className="h4 text-primary">
+                        ${Number(order.total || 0).toLocaleString("es-CL")}
+                      </div>
                     </div>
                   </div>
 
                   <div className="d-flex gap-2 mt-4">
-                    <Button variant="secondary" onClick={handlePrint}>Imprimir boleta en PDF</Button>
-                    <Button variant="outline-primary" onClick={handleHome}>Volver al inicio</Button>
+                    <Button variant="secondary" onClick={handlePrint}>
+                      Imprimir boleta en PDF
+                    </Button>
+                    <Button
+                      variant="outline-primary"
+                      onClick={() => router.push("/")}
+                    >
+                      Volver al inicio
+                    </Button>
                   </div>
                 </>
               ) : (
                 <div className="text-center py-4">
-                  <p className="text-muted mb-2">No se encontró información de la orden.</p>
+                  <p className="text-muted mb-2">
+                    No se encontró información de la orden.
+                  </p>
                   <div className="d-flex justify-content-center gap-2">
-                    <Button variant="primary" onClick={() => router.push("/productos")}>Ver Productos</Button>
-                    <Button variant="outline-secondary" onClick={() => router.push("/")}>Volver al inicio</Button>
+                    <Button
+                      variant="primary"
+                      onClick={() => router.push("/productos")}
+                    >
+                      Ver Productos
+                    </Button>
+                    <Button
+                      variant="outline-secondary"
+                      onClick={() => router.push("/")}
+                    >
+                      Volver al inicio
+                    </Button>
                   </div>
                 </div>
               )}

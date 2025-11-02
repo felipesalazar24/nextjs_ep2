@@ -9,113 +9,57 @@ import {
   Table,
   Button,
   Badge,
-  Spinner,
 } from "react-bootstrap";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 /**
  * Página de pago fallido
- * - Igual a la versión de éxito, pero para el intento fallido.
- * - Carga ofertas (GET /api/offers + fallback localStorage.createdOffers) inline
- *   para poder mostrar en la tabla:
- *     * Precio: muestra el precio original (oldPrice) struck-through si aplica oferta
- *     * Oferta: columna entre Precio y Cantidad que muestra % (badge) o '-' si no aplica
- *     * Subtotal: calculado con el precio efectivo (precio de oferta si aplica)
+ * Basada en la página de éxito pero con mensaje/estado de fallo.
+ * Lee los detalles del último intento guardado en sessionStorage ('lastFailedOrder')
+ * y los muestra. Incluye botones para volver a productos o al inicio.
  *
  * Pegar en: app/checkout/failed/page.jsx
  */
 
-const loadOffers = async () => {
-  let serverOffers = [];
-  try {
-    const res = await fetch("/api/offers").catch(() => null);
-    if (res && res.ok) serverOffers = await res.json().catch(() => []);
-  } catch (err) {
-    serverOffers = [];
-  }
-
-  let created = [];
-  try {
-    if (typeof window !== "undefined") {
-      const raw = localStorage.getItem("createdOffers");
-      created = raw ? JSON.parse(raw) : [];
-    }
-  } catch (err) {
-    created = [];
-  }
-
-  const map = new Map();
-  for (const o of serverOffers || []) {
-    const pid = String(o.productId ?? o.id ?? "").trim();
-    if (!pid) continue;
-    map.set(pid, { ...o, source: "server" });
-  }
-  for (const o of created || []) {
-    const pid = String(o.productId ?? "").trim();
-    if (!pid) continue;
-    map.set(pid, { ...o, source: "admin" });
-  }
-
-  return { offersArray: Array.from(map.values()), offersMap: map };
-};
-
-const getOfferForProduct = (offersMap, product) => {
-  if (!offersMap || !product) return null;
-  // support different id names that may exist in order item
-  const pid = String(
-    product.id ??
-      product.productId ??
-      product._id ??
-      product.sku ??
-      product.codigo ??
-      ""
-  ).trim();
-  return offersMap.get(pid) || null;
-};
-
-const getEffectivePrice = (product, offer) => {
-  const raw =
-    Number(product.precio ?? product.price ?? product.amount ?? 0) || 0;
-  if (!offer) return { oldPrice: null, price: raw, percent: 0 };
-  const oldPrice = Number(offer.oldPrice ?? raw) || raw;
-  let price = Number(offer.newPrice ?? 0);
-  let percent = Number(offer.percent ?? 0);
-
-  if (!price && percent && oldPrice)
-    price = Math.round(oldPrice * (1 - percent / 100));
-  if (!percent && price && oldPrice)
-    percent = Math.round(((oldPrice - price) / oldPrice) * 100);
-  if (!price || price <= 0) price = raw;
-
-  return { oldPrice: oldPrice || null, price, percent: percent || 0 };
-};
-
 export default function CheckoutFailedPage() {
   const router = useRouter();
-  const params = useSearchParams();
-  const orderIdParam = params ? params.get("order") : null;
 
+  // Estado
+  const [orderIdParam, setOrderIdParam] = useState(null);
   const [attempt, setAttempt] = useState(null);
   const [offersMap, setOffersMap] = useState(new Map());
   const [offersLoading, setOffersLoading] = useState(true);
 
+  // Leemos la query 'order' desde window.location.search en el cliente
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem("lastFailedOrder");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (!orderIdParam || parsed.id === orderIdParam) {
-          setAttempt(parsed);
-        } else {
-          // si no coincide, aún así mostrar el stored attempt
-          setAttempt(parsed);
-        }
+      if (typeof window !== "undefined") {
+        const sp = new URLSearchParams(window.location.search);
+        const order = sp.get("order");
+        setOrderIdParam(order);
       }
     } catch (err) {
       // ignore
     }
+  }, []);
+
+  // Cargamos intento desde sessionStorage (cliente)
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined") {
+        const raw = sessionStorage.getItem("lastFailedOrder");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          // Si viene orderIdParam, podrías validar coincidencia aquí
+          setAttempt(parsed);
+        }
+      }
+    } catch (err) {
+      // ignore parse errors
+    }
   }, [orderIdParam]);
 
+  // Cargar ofertas (cliente)
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -198,15 +142,16 @@ export default function CheckoutFailedPage() {
                     <tbody>
                       {Array.isArray(attempt.items) &&
                       attempt.items.length > 0 ? (
-                        attempt.items.map((it) => {
+                        attempt.items.map((it, index) => {
                           const offer = getOfferForProduct(offersMap, it);
                           const ef = getEffectivePrice(it, offer);
                           const qty =
                             Number(it.cantidad || it.quantity || it.qty || 1) ||
                             1;
+                          const key = it.id ?? `${index}-${it.nombre}`;
 
                           return (
-                            <tr key={it.id}>
+                            <tr key={key}>
                               <td style={{ width: 80 }}>
                                 {it.imagen ? (
                                   <img
@@ -222,7 +167,6 @@ export default function CheckoutFailedPage() {
                               </td>
                               <td>{it.nombre}</td>
 
-                              {/* Precio: mostrar precio original (oldPrice) strike-through cuando hay oferta */}
                               <td className="text-end">
                                 {ef && ef.oldPrice ? (
                                   <span
@@ -237,13 +181,12 @@ export default function CheckoutFailedPage() {
                                     )}
                                   </span>
                                 ) : (
-                                  `$${Number(it.precio || 0).toLocaleString(
-                                    "es-CL"
-                                  )}`
+                                  `$${Number(
+                                    it.precio || it.price || 0
+                                  ).toLocaleString("es-CL")}`
                                 )}
                               </td>
 
-                              {/* Oferta: mostrar % de descuento */}
                               <td className="text-center">
                                 {ef && ef.percent ? (
                                   <Badge bg="danger">-{ef.percent}%</Badge>
@@ -254,11 +197,12 @@ export default function CheckoutFailedPage() {
 
                               <td className="text-center">{qty}</td>
 
-                              {/* Subtotal: usar precio efectivo (oferta si aplica) */}
                               <td className="text-end">
                                 $
                                 {(
-                                  Number(ef.price || it.precio || 0) * qty || 0
+                                  Number(
+                                    ef.price || it.precio || it.price || 0
+                                  ) * qty || 0
                                 ).toLocaleString("es-CL")}
                               </td>
                             </tr>
