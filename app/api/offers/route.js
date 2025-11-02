@@ -19,11 +19,16 @@ const DATA_DIR = path.join(process.cwd(), "data");
 const OFFERS_FILE = path.join(DATA_DIR, "offers.json");
 
 function ensureDataFileSync() {
-  if (!fs.existsSync(DATA_DIR)) {
-    fs.mkdirSync(DATA_DIR, { recursive: true });
-  }
-  if (!fs.existsSync(OFFERS_FILE)) {
-    fs.writeFileSync(OFFERS_FILE, JSON.stringify([], null, 2), "utf8");
+  try {
+    if (!fs.existsSync(DATA_DIR)) {
+      fs.mkdirSync(DATA_DIR, { recursive: true });
+    }
+    if (!fs.existsSync(OFFERS_FILE)) {
+      fs.writeFileSync(OFFERS_FILE, JSON.stringify([], null, 2), "utf8");
+    }
+  } catch (e) {
+    console.error("ensureDataFileSync error:", e);
+    throw e;
   }
 }
 
@@ -33,7 +38,8 @@ function readOffersSync() {
     const raw = fs.readFileSync(OFFERS_FILE, "utf8");
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
-  } catch {
+  } catch (e) {
+    console.error("readOffersSync error:", e);
     return [];
   }
 }
@@ -49,8 +55,8 @@ export async function GET() {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
-  } catch (err) {
-    console.error("GET /api/offers error:", err);
+  } catch (e) {
+    console.error("GET /api/offers error:", e);
     return new Response(JSON.stringify({ error: "Server error" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
@@ -87,7 +93,6 @@ export async function POST(req) {
       );
     }
 
-    // derive newPrice when only percent is provided (oldPrice recommended)
     let computedNewPrice = newPrice;
     if (computedNewPrice == null && percent != null && oldPrice != null) {
       computedNewPrice = Math.round(oldPrice * (1 - percent / 100));
@@ -95,7 +100,6 @@ export async function POST(req) {
 
     const offers = readOffersSync();
 
-    // Replace existing offer for this productId (idempotent)
     const record = {
       productId,
       newPrice: computedNewPrice,
@@ -112,8 +116,8 @@ export async function POST(req) {
       status: 201,
       headers: { "Content-Type": "application/json" },
     });
-  } catch (err) {
-    console.error("POST /api/offers error:", err);
+  } catch (e) {
+    console.error("POST /api/offers error:", e);
     return new Response(JSON.stringify({ error: "Server error" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },

@@ -8,13 +8,13 @@ import { getById, update, remove } from "../../../../lib/jsonDb";
  */
 function extractIdFromReq(req) {
   try {
-    // req.url es la URL completa; la parte pathname contiene /api/productos/:id
     const url = new URL(req.url);
-    const parts = url.pathname.split("/").filter(Boolean); // ['api','productos','123']
+    const parts = url.pathname.split("/").filter(Boolean);
     const last = parts[parts.length - 1];
     const id = parseInt(String(last || ""), 10);
     return Number.isNaN(id) ? null : id;
-  } catch {
+  } catch (e) {
+    console.error("extractIdFromReq error:", e);
     return null;
   }
 }
@@ -35,8 +35,8 @@ export async function GET(req) {
       );
     }
     return NextResponse.json(item);
-  } catch (err) {
-    console.error("GET /api/productos/[id] error:", err);
+  } catch (e) {
+    console.error("GET /api/productos/[id] error:", e);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }
@@ -58,12 +58,12 @@ export async function PUT(req) {
       );
     }
     return NextResponse.json(updated);
-  } catch (err) {
-    console.error("PUT /api/productos/[id] error:", err);
+  } catch (e) {
+    console.error("PUT /api/productos/[id] error:", e);
     return NextResponse.json(
       {
         error: "Payload inválido o error interno",
-        details: String(err?.message || err),
+        details: String(e?.message || e),
       },
       { status: 400 }
     );
@@ -86,8 +86,8 @@ export async function DELETE(req) {
       );
     }
     return NextResponse.json({ success: true });
-  } catch (err) {
-    console.error("DELETE /api/productos/[id] error:", err);
+  } catch (e) {
+    console.error("DELETE /api/productos/[id] error:", e);
     return NextResponse.json({ error: "Error interno" }, { status: 500 });
   }
 }

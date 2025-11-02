@@ -18,6 +18,7 @@ function ensureDataFileSync() {
       fs.writeFileSync(OFFERS_FILE, JSON.stringify([], null, 2), "utf8");
     }
   } catch (e) {
+    console.error("ensureDataFileSync error:", e);
     throw e;
   }
 }
@@ -28,7 +29,11 @@ function readOffersSync() {
     const raw = fs.readFileSync(OFFERS_FILE, "utf8");
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
-  } catch {}
+  } catch (e) {
+    // Log the error so the variable is used and we get visibility in logs
+    console.error("readOffersSync error:", e);
+    return [];
+  }
 }
 
 function writeOffersSync(offers) {
@@ -37,7 +42,7 @@ function writeOffersSync(offers) {
 
 export async function DELETE(req, context) {
   try {
-    // context.params puede ser "resolvable" — awaitearlo evita el error
+    // context.params puede ser "resolvable" — awaitarlo evita el error
     const params =
       typeof context?.params?.then === "function"
         ? await context.params
@@ -60,8 +65,8 @@ export async function DELETE(req, context) {
       status: 200,
       headers: { "Content-Type": "application/json" },
     });
-  } catch (err) {
-    console.error("DELETE /api/offers/[id] error:", err);
+  } catch (e) {
+    console.error("DELETE /api/offers/[id] error:", e);
     return new Response(JSON.stringify({ error: "Server error" }), {
       status: 500,
       headers: { "Content-Type": "application/json" },
