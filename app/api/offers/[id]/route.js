@@ -17,8 +17,8 @@ function ensureDataFileSync() {
     if (!fs.existsSync(OFFERS_FILE)) {
       fs.writeFileSync(OFFERS_FILE, JSON.stringify([], null, 2), "utf8");
     }
-  } catch (err) {
-    throw err;
+  } catch (e) {
+    throw e;
   }
 }
 
@@ -28,9 +28,7 @@ function readOffersSync() {
     const raw = fs.readFileSync(OFFERS_FILE, "utf8");
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
-  } catch (err) {
-    return [];
-  }
+  } catch {}
 }
 
 function writeOffersSync(offers) {

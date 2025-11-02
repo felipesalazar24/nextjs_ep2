@@ -14,13 +14,13 @@ function extractIdFromReq(req) {
     const last = parts[parts.length - 1];
     const id = parseInt(String(last || ""), 10);
     return Number.isNaN(id) ? null : id;
-  } catch (err) {
+  } catch {
     return null;
   }
 }
 
 // GET /api/productos/:id
-export async function GET(req, context) {
+export async function GET(req) {
   const id = extractIdFromReq(req);
   if (id === null) {
     return NextResponse.json({ error: "id inválido" }, { status: 400 });
@@ -42,7 +42,7 @@ export async function GET(req, context) {
 }
 
 // PUT /api/productos/:id
-export async function PUT(req, context) {
+export async function PUT(req) {
   const id = extractIdFromReq(req);
   if (id === null) {
     return NextResponse.json({ error: "id inválido" }, { status: 400 });
@@ -71,7 +71,7 @@ export async function PUT(req, context) {
 }
 
 // DELETE /api/productos/:id
-export async function DELETE(req, context) {
+export async function DELETE(req) {
   const id = extractIdFromReq(req);
   if (id === null) {
     return NextResponse.json({ error: "id inválido" }, { status: 400 });

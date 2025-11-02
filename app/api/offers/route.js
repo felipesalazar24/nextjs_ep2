@@ -19,15 +19,11 @@ const DATA_DIR = path.join(process.cwd(), "data");
 const OFFERS_FILE = path.join(DATA_DIR, "offers.json");
 
 function ensureDataFileSync() {
-  try {
-    if (!fs.existsSync(DATA_DIR)) {
-      fs.mkdirSync(DATA_DIR, { recursive: true });
-    }
-    if (!fs.existsSync(OFFERS_FILE)) {
-      fs.writeFileSync(OFFERS_FILE, JSON.stringify([], null, 2), "utf8");
-    }
-  } catch (err) {
-    throw err;
+  if (!fs.existsSync(DATA_DIR)) {
+    fs.mkdirSync(DATA_DIR, { recursive: true });
+  }
+  if (!fs.existsSync(OFFERS_FILE)) {
+    fs.writeFileSync(OFFERS_FILE, JSON.stringify([], null, 2), "utf8");
   }
 }
 
@@ -37,7 +33,7 @@ function readOffersSync() {
     const raw = fs.readFileSync(OFFERS_FILE, "utf8");
     const parsed = JSON.parse(raw);
     return Array.isArray(parsed) ? parsed : [];
-  } catch (err) {
+  } catch {
     return [];
   }
 }
