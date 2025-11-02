@@ -1,221 +1,383 @@
-// app/productos/page.jsx
-'use client';
+"use client";
 
-import { Container, Row, Col, Card, Button, Badge } from 'react-bootstrap';
-import Link from 'next/link';
-import { useState } from 'react';
-import { useCart } from '../context/CartContext';
+import React, { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
+import {
+  Container,
+  Row,
+  Col,
+  Card,
+  Button,
+  Spinner,
+  Alert,
+  Badge,
+  Pagination,
+} from "react-bootstrap";
+import { useAuth } from "../context/AuthContext";
+import { useCart } from "../context/CartContext";
 
-// Componente para imagen
-const ProductImage = (props) => {
-    const [imgSrc, setImgSrc] = useState(props.src);
-    
-    const handleError = () => {
-        setImgSrc('https://via.placeholder.com/300x200/cccccc/969696?text=Imagen+No+Disponible');
-    };
+/**
+ * Productos list (app/productos/page.jsx)
+ * - Carga productos y ofertas (server + localStorage fallback).
+ * - Muestra en cada tarjeta un pequeño cartel de oferta cuando aplica:
+ *    * precio original tachado, precio oferta destacado y porcentaje.
+ * - Agrega paginación client-side (40 items por página) con controles arriba y abajo.
+ */
 
-    return (
-        <Card.Img 
-            variant="top" 
-            src={imgSrc} 
-            alt={props.alt}
-            style={props.style}
-            onError={handleError}
-        />
-    );
+function normalizeId(v) {
+  return String(v ?? "").trim();
+}
+
+const safeSrc = (s) => {
+  if (!s) return "/assets/productos/placeholder.png";
+  try {
+    if (String(s).startsWith("data:")) return s;
+    if (!String(s).match(/^https?:\/\//i) && typeof window !== "undefined") {
+      return new URL(s, window.location.origin).href;
+    }
+    return String(s);
+  } catch {
+    return String(s);
+  }
 };
 
-// PRODUCTOS CON RUTAS LOCALES
-const productos = [
-    { 
-        id: 1, 
-        nombre: "Logitech G502", 
-        precio: 83000, 
-        imagen: "/assets/productos/M1.jpg", 
-        descripcion: "El Logitech G502 LIGHTSPEED es un mouse inalámbrico diseñado para gamers que buscan un alto rendimiento, precisión y libertad de movimiento sin cables.", 
-        atributo: "Mouse" 
-    },
-    { 
-        id: 2, 
-        nombre: "Logitech G305 LightSpeed Wireless", 
-        precio: 35000, 
-        imagen: "/assets/productos/M2.1.jpg", 
-        descripcion: "El Logitech G305 LightSpeed es un mouse inalámbrico diseñado para gamers y usuarios que buscan un rendimiento profesional con tecnología avanzada.", 
-        atributo: "Mouse" 
-    },
-    { 
-        id: 3, 
-        nombre: "Logitech G203 Lightsync Blue", 
-        precio: 20000, 
-        imagen: "/assets/productos/M3.jpg", 
-        descripcion: "El Logitech G203 Lightsync Black es un mouse gamer alámbrico diseñado para ofrecer precisión, personalización y rendimiento en juegos.", 
-        atributo: "Mouse" 
-    },
-    { 
-        id: 4, 
-        nombre: "Redragon Kumara K552 Rainbow", 
-        precio: 26000, 
-        imagen: "/assets/productos/T1.jpg", 
-        descripcion: "El Redragon Kumara K552 Rainbow es un teclado mecánico, diseñado especialmente para gamers y usuarios que buscan un periférico resistente.", 
-        atributo: "Teclado" 
-    },
-    { 
-        id: 5, 
-        nombre: "Logitech G PRO X TKL", 
-        precio: 182000, 
-        imagen: "/assets/productos/T2.jpg", 
-        descripcion: "El Logitech PRO X TKL Lightspeed es un teclado mecánico diseñado para jugadores profesionales y entusiastas del gaming.", 
-        atributo: "Teclado" 
-    },
-    { 
-        id: 6, 
-        nombre: "Razer BlackWidow V4 75% - Black", 
-        precio: 165000, 
-        imagen: "/assets/productos/T3.jpg", 
-        descripcion: "El Razer BlackWidow V4 75% es un teclado mecánico compacto diseñado para usuarios y gamers que buscan un equilibrio.", 
-        atributo: "Teclado" 
-    },
-    { 
-        id: 7, 
-        nombre: "Logitech G435 - Black/Yellow", 
-        precio: 58000, 
-        imagen: "/assets/productos/A1.jpg", 
-        descripcion: "Los Logitech G435 son audífonos inalámbricos diseñados especialmente para gaming, que combinan la tecnología LIGHTSPEED y Bluetooth.", 
-        atributo: "Audifono" 
-    },
-    { 
-        id: 8, 
-        nombre: "Razer BlackShark V2 X", 
-        precio: 37000, 
-        imagen: "/assets/productos/A2.jpg", 
-        descripcion: "Los Razer BlackShark V2 X son audífonos diseñados especialmente para gamers y entusiastas de los esports.", 
-        atributo: "Audifono" 
-    },
-    { 
-        id: 9, 
-        nombre: "Logitech G335 - Black", 
-        precio: 43000, 
-        imagen: "/assets/productos/A3.jpg", 
-        descripcion: "Los Logitech G335 son audífonos gamer diseñados para ofrecer una experiencia de sonido clara y envolvente.", 
-        atributo: "Audifono" 
-    },
-    { 
-        id: 10, 
-        nombre: "LG UltraGear 24GS60F-B", 
-        precio: 119000, 
-        imagen: "/assets/productos/MO1.jpg", 
-        descripcion: "El LG UltraGear 24GS60F-B es un monitor diseñado para gamers que buscan un rendimiento superior y una experiencia visual inmersiva.", 
-        atributo: "Monitor" 
-    },
-    { 
-        id: 11, 
-        nombre: "Xiaomi A27Qi", 
-        precio: 124000, 
-        imagen: "/assets/productos/MO2.jpg", 
-        descripcion: "El Monitor Xiaomi A27Qi es una pantalla de 27 pulgadas que ofrece una experiencia visual de alta calidad.", 
-        atributo: "Monitor" 
-    },
-    { 
-        id: 12, 
-        nombre: "Xiaomi G34WQi", 
-        precio: 240000, 
-        imagen: "/assets/productos/MO3.jpg", 
-        descripcion: "El Monitor Gamer Xiaomi G34WQi es una pantalla curva ultrapanorámica de 34 pulgadas diseñada para ofrecer una experiencia visual inmersiva.", 
-        atributo: "Monitor" 
-    }
-];
-
 export default function ProductosPage() {
-    const { addToCart } = useCart();
+  const { user } = useAuth();
+  const cart = useCart();
+  const [productos, setProductos] = useState([]);
+  const [serverOffers, setServerOffers] = useState([]);
+  const [createdOffers, setCreatedOffers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(null);
 
-    const getCategoryVariant = (atributo) => {
-        const variants = {
-            'Mouse': 'primary',
-            'Teclado': 'success',
-            'Audifono': 'warning',
-            'Monitor': 'info'
-        };
-        return variants[atributo] || 'secondary';
+  // pagination state
+  const PAGE_SIZE = 40;
+  const [page, setPage] = useState(1);
+
+  // Load data
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      setLoading(true);
+      setError(null);
+      try {
+        const [pRes, oRes] = await Promise.all([
+          fetch("/api/productos"),
+          fetch("/api/offers").catch(() => null),
+        ]);
+
+        if (!pRes.ok) {
+          const data = await pRes.json().catch(() => ({}));
+          throw new Error(data.error || "Error al cargar productos");
+        }
+        const prodData = await pRes.json().catch(() => []);
+        let offersData = [];
+        if (oRes && oRes.ok) {
+          offersData = await oRes.json().catch(() => []);
+        }
+
+        const stored =
+          typeof window !== "undefined"
+            ? localStorage.getItem("createdOffers")
+            : null;
+        const parsed = stored ? JSON.parse(stored) : [];
+
+        if (!mounted) return;
+        setProductos(Array.isArray(prodData) ? prodData : []);
+        setServerOffers(Array.isArray(offersData) ? offersData : []);
+        setCreatedOffers(Array.isArray(parsed) ? parsed : []);
+        // reset page to 1 when reloading dataset
+        setPage(1);
+      } catch (err) {
+        console.error(err);
+        if (!mounted) return;
+        setError(err.message || "Error al cargar datos");
+        setProductos([]);
+        setServerOffers([]);
+        setCreatedOffers([]);
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
     };
+  }, []);
 
-    const handleAddToCart = (producto) => {
-        addToCart(producto, 1);
-        alert(`¡${producto.nombre} agregado al carrito!`);
-    };
+  // merge offers (createdOffers override serverOffers for same productId)
+  const offersMap = useMemo(() => {
+    const map = new Map();
+    for (const o of serverOffers || []) {
+      const pid = normalizeId(
+        o.productId ?? o.id ?? (o.product && (o.product.id ?? o.product._id))
+      );
+      if (!pid) continue;
+      map.set(pid, { ...o, source: "server" });
+    }
+    for (const o of createdOffers || []) {
+      const pid = normalizeId(o.productId ?? "");
+      if (!pid) continue;
+      map.set(pid, { ...o, source: "admin" });
+    }
+    return map;
+  }, [serverOffers, createdOffers]);
 
-    return (
-        <Container className="py-4">
-            <div className="text-center mb-5">
-                <h1 className="display-5 fw-bold text-dark mb-3">Nuestros Productos</h1>
-                <p className="lead text-muted">
-                    Descubre la mejor selección de productos gaming para mejorar tu experiencia
-                </p>
-            </div>
-
-            <Row className="g-4">
-                {productos.map(producto => (
-                    <Col key={producto.id} xs={12} sm={6} md={4} lg={3}>
-                        <Card className="h-100 shadow-sm border-0 product-card">
-                            <div className="position-relative">
-                                <ProductImage 
-                                    src={producto.imagen}
-                                    alt={producto.nombre}
-                                    style={{ 
-                                        height: '200px', 
-                                        objectFit: 'cover',
-                                        padding: '15px'
-                                    }}
-                                />
-                                <Badge 
-                                    bg={getCategoryVariant(producto.atributo)} 
-                                    className="position-absolute top-0 start-0 m-2"
-                                >
-                                    {producto.atributo}
-                                </Badge>
-                            </div>
-                            
-                            <Card.Body className="d-flex flex-column">
-                                <Card.Title className="h6 mb-2">
-                                    <Link 
-                                        href={`/productos/${producto.id}`}
-                                        className="text-dark text-decoration-none"
-                                    >
-                                        {producto.nombre}
-                                    </Link>
-                                </Card.Title>
-                                
-                                <Card.Text className="text-muted small flex-grow-1">
-                                    {producto.descripcion.substring(0, 100)}...
-                                </Card.Text>
-                                
-                                <div className="mt-auto">
-                                    <div className="d-flex justify-content-between align-items-center mb-3">
-                                        <span className="h5 text-primary mb-0">
-                                            ${producto.precio.toLocaleString('es-CL')}
-                                        </span>
-                                    </div>
-                                    
-                                    <div className="d-grid gap-2">
-                                        <Link 
-                                            href={`/productos/${producto.id}`}
-                                            className="btn btn-outline-dark btn-sm"
-                                        >
-                                            Ver Detalles
-                                        </Link>
-                                        <Button 
-                                            variant="primary" 
-                                            size="sm"
-                                            onClick={() => handleAddToCart(producto)}
-                                        >
-                                            Agregar al Carrito
-                                        </Button>
-                                    </div>
-                                </div>
-                            </Card.Body>
-                        </Card>
-                    </Col>
-                ))}
-            </Row>
-        </Container>
+  const computeOfferFor = (product) => {
+    const pid = normalizeId(product.id ?? product._id ?? product.sku);
+    const o = offersMap.get(pid);
+    if (!o) return null;
+    const oldPrice = Number(o.oldPrice ?? product.precio ?? product.price ?? 0);
+    const newPrice = Number(o.newPrice ?? 0);
+    const percent = Number(
+      o.percent ??
+        (oldPrice && newPrice
+          ? Math.round(((oldPrice - newPrice) / oldPrice) * 100)
+          : 0)
     );
+    if (!newPrice || newPrice <= 0) return null;
+    return { oldPrice, newPrice, percent, source: o.source || "server" };
+  };
+
+  // Pagination helpers
+  const totalPages = Math.max(
+    1,
+    Math.ceil((productos?.length || 0) / PAGE_SIZE)
+  );
+  // Keep page in bounds if products change
+  useEffect(() => {
+    if (page > totalPages) setPage(1);
+  }, [totalPages]);
+
+  const paginatedProducts = useMemo(() => {
+    const start = (page - 1) * PAGE_SIZE;
+    return (productos || []).slice(start, start + PAGE_SIZE);
+  }, [productos, page]);
+
+  if (loading) {
+    return (
+      <Container className="py-5 text-center">
+        <Spinner animation="border" role="status" />
+      </Container>
+    );
+  }
+
+  if (error) {
+    return (
+      <Container className="py-5">
+        <Alert variant="danger">{error}</Alert>
+      </Container>
+    );
+  }
+
+  if (!productos || productos.length === 0) {
+    return (
+      <Container className="py-5">
+        <Alert variant="info">No hay productos para mostrar.</Alert>
+      </Container>
+    );
+  }
+
+  const handleAddToCart = (product, effectivePrice) => {
+    try {
+      if (cart && typeof cart.addToCart === "function") {
+        const item = { ...product, precio: effectivePrice };
+        cart.addToCart(item, 1);
+        alert(`¡${product.nombre} agregado al carrito!`);
+      } else {
+        // fallback: dispatch event
+        const e = new CustomEvent("add-to-cart", {
+          detail: { product, price: effectivePrice, qty: 1 },
+        });
+        window.dispatchEvent(e);
+      }
+    } catch (err) {
+      console.warn("addToCart error", err);
+    }
+  };
+
+  return (
+    <Container className="py-5">
+      {/* Top pagination controls */}
+      {totalPages > 1 && (
+        <div className="d-flex justify-content-center mb-3">
+          <Pagination>
+            <Pagination.Prev
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+            />
+            {page > 3 && (
+              <>
+                <Pagination.Item onClick={() => setPage(1)}>1</Pagination.Item>
+                <Pagination.Ellipsis disabled />
+              </>
+            )}
+            {Array.from({ length: totalPages }).map((_, i) => {
+              const pageNum = i + 1;
+              if (pageNum >= page - 2 && pageNum <= page + 2) {
+                return (
+                  <Pagination.Item
+                    key={pageNum}
+                    active={pageNum === page}
+                    onClick={() => setPage(pageNum)}
+                  >
+                    {pageNum}
+                  </Pagination.Item>
+                );
+              }
+              return null;
+            })}
+            {page < totalPages - 2 && (
+              <>
+                <Pagination.Ellipsis disabled />
+                <Pagination.Item onClick={() => setPage(totalPages)}>
+                  {totalPages}
+                </Pagination.Item>
+              </>
+            )}
+            <Pagination.Next
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+            />
+          </Pagination>
+        </div>
+      )}
+
+      <Row xs={1} md={3} lg={4} className="g-4">
+        {paginatedProducts.map((p) => {
+          const offer = computeOfferFor(p);
+          const displayPrice = offer
+            ? offer.newPrice
+            : p.precio ?? p.price ?? 0;
+          return (
+            <Col key={p.id ?? p._id ?? p.sku}>
+              <Card className="h-100 shadow-sm">
+                <div style={{ padding: 18, textAlign: "center" }}>
+                  <img
+                    src={safeSrc(
+                      p.imagen ||
+                        (p.miniaturas && p.miniaturas[0]) ||
+                        "/assets/productos/placeholder.png"
+                    )}
+                    alt={p.nombre}
+                    style={{ width: "100%", height: 180, objectFit: "contain" }}
+                    onError={(e) =>
+                      (e.target.src = "/assets/productos/placeholder.png")
+                    }
+                  />
+                </div>
+
+                <Card.Body className="d-flex flex-column">
+                  <div className="mb-2 d-flex justify-content-between align-items-start">
+                    <div>
+                      <Card.Title style={{ fontSize: 16 }}>
+                        {p.nombre}
+                      </Card.Title>
+                      <small className="text-muted">
+                        {p.atributo || p.categoria}
+                      </small>
+                    </div>
+
+                    {offer ? (
+                      <Badge bg="danger" className="text-wrap">
+                        -{offer.percent}%
+                      </Badge>
+                    ) : null}
+                  </div>
+
+                  <div className="mb-3">
+                    {offer ? (
+                      <div>
+                        <div>
+                          <span
+                            style={{
+                              textDecoration: "line-through",
+                              color: "#777",
+                              marginRight: 8,
+                            }}
+                          >
+                            ${Number(offer.oldPrice).toLocaleString("es-CL")}
+                          </span>
+                          <span style={{ color: "#0d6efd", fontWeight: 700 }}>
+                            ${Number(offer.newPrice).toLocaleString("es-CL")}
+                          </span>
+                        </div>
+                      </div>
+                    ) : (
+                      <div style={{ color: "#0d6efd", fontWeight: 700 }}>
+                        $
+                        {Number(p.precio ?? p.price ?? 0).toLocaleString(
+                          "es-CL"
+                        )}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="mt-auto d-grid">
+                    <Link
+                      href={`/productos/${p.id ?? p._id ?? p.sku}`}
+                      className="btn btn-outline-dark btn-sm mb-2"
+                    >
+                      Ver Detalles
+                    </Link>
+                    <Button
+                      variant="primary"
+                      onClick={() => handleAddToCart(p, displayPrice)}
+                    >
+                      Agregar al Carrito
+                    </Button>
+                  </div>
+                </Card.Body>
+              </Card>
+            </Col>
+          );
+        })}
+      </Row>
+
+      {/* Bottom Pagination controls */}
+      {totalPages > 1 && (
+        <div className="d-flex justify-content-center mt-4">
+          <Pagination>
+            <Pagination.Prev
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+              disabled={page === 1}
+            />
+            {page > 3 && (
+              <>
+                <Pagination.Item onClick={() => setPage(1)}>1</Pagination.Item>
+                <Pagination.Ellipsis disabled />
+              </>
+            )}
+            {Array.from({ length: totalPages }).map((_, i) => {
+              const pageNum = i + 1;
+              if (pageNum >= page - 2 && pageNum <= page + 2) {
+                return (
+                  <Pagination.Item
+                    key={pageNum}
+                    active={pageNum === page}
+                    onClick={() => setPage(pageNum)}
+                  >
+                    {pageNum}
+                  </Pagination.Item>
+                );
+              }
+              return null;
+            })}
+            {page < totalPages - 2 && (
+              <>
+                <Pagination.Ellipsis disabled />
+                <Pagination.Item onClick={() => setPage(totalPages)}>
+                  {totalPages}
+                </Pagination.Item>
+              </>
+            )}
+            <Pagination.Next
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+              disabled={page === totalPages}
+            />
+          </Pagination>
+        </div>
+      )}
+    </Container>
+  );
 }

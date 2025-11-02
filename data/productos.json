@@ -1,0 +1,156 @@
+[
+  {
+    "id": 1,
+    "nombre": "Logitech G502",
+    "precio": 83000,
+    "imagen": "/assets/productos/M1.jpg",
+    "descripcion": "El Logitech G502 LIGHTSPEED es un mouse inalámbrico diseñado para gamers que buscan un alto rendimiento, precisión y libertad de movimiento sin cables.",
+    "miniaturas": [
+      "/assets/productos/M1.1.jpg",
+      "/assets/productos/M1.2.jpg",
+      "/assets/productos/M1.3.jpg"
+    ],
+    "atributo": "Mouse"
+  },
+  {
+    "id": 2,
+    "nombre": "Logitech G305 LightSpeed Wireless",
+    "precio": 35000,
+    "imagen": "/assets/productos/M2.1.jpg",
+    "descripcion": "El Logitech G305 LightSpeed es un mouse inalámbrico diseñado para gamers y usuarios que buscan un rendimiento profesional con tecnología avanzada.",
+    "miniaturas": [
+      "/assets/productos/M2.jpg",
+      "/assets/productos/M2.2.jpg",
+      "/assets/productos/M2.3.jpg"
+    ],
+    "atributo": "Mouse"
+  },
+  {
+    "id": 3,
+    "nombre": "Logitech G203 Lightsync Blue",
+    "precio": 20000,
+    "imagen": "/assets/productos/M3.jpg",
+    "descripcion": "El Logitech G203 Lightsync Black es un mouse gamer alámbrico diseñado para ofrecer precisión, personalización y rendimiento en juegos.",
+    "miniaturas": [
+      "/assets/productos/M3.1.jpg",
+      "/assets/productos/M3.2.jpg",
+      "/assets/productos/M3.3.jpg"
+    ],
+    "atributo": "Mouse"
+  },
+  {
+    "id": 4,
+    "nombre": "Redragon Kumara K552 Rainbow",
+    "precio": 26000,
+    "imagen": "/assets/productos/T1.jpg",
+    "descripcion": "El Redragon Kumara K552 Rainbow es un teclado mecánico, diseñado especialmente para gamers y usuarios que buscan un periférico resistente.",
+    "miniaturas": [
+      "/assets/productos/T1.1.jpg",
+      "/assets/productos/T1.2.jpg",
+      "/assets/productos/T1.3.jpg"
+    ],
+    "atributo": "Teclado"
+  },
+  {
+    "id": 5,
+    "nombre": "Logitech G PRO X TKL",
+    "precio": 182000,
+    "imagen": "/assets/productos/T2.jpg",
+    "descripcion": "El Logitech PRO X TKL Lightspeed es un teclado mecánico diseñado para jugadores profesionales y entusiastas del gaming.",
+    "miniaturas": [
+      "/assets/productos/T2.1.jpg",
+      "/assets/productos/T2.2.jpg",
+      "/assets/productos/T2.3.jpg"
+    ],
+    "atributo": "Teclado"
+  },
+  {
+    "id": 6,
+    "nombre": "Razer BlackWidow V4 75% - Black",
+    "precio": 165000,
+    "imagen": "/assets/productos/T3.jpg",
+    "descripcion": "El Razer BlackWidow V4 75% es un teclado mecánico compacto diseñado para usuarios y gamers que buscan un equilibrio.",
+    "miniaturas": [
+      "/assets/productos/T3.1.jpg",
+      "/assets/productos/T3.2.jpg",
+      "/assets/productos/T3.3.jpg"
+    ],
+    "atributo": "Teclado"
+  },
+  {
+    "id": 7,
+    "nombre": "Logitech G435 - Black/Yellow",
+    "precio": 58000,
+    "imagen": "/assets/productos/A1.jpg",
+    "descripcion": "Los Logitech G435 son audífonos inalámbricos diseñados especialmente para gaming, que combinan la tecnología LIGHTSPEED y Bluetooth.",
+    "miniaturas": [
+      "/assets/productos/A1.1.jpg",
+      "/assets/productos/A1.2.jpg"
+    ],
+    "atributo": "Audifono"
+  },
+  {
+    "id": 8,
+    "nombre": "Razer BlackShark V2 X",
+    "precio": 37000,
+    "imagen": "/assets/productos/A2.jpg",
+    "descripcion": "Los Razer BlackShark V2 X son audífonos diseñados especialmente para gamers y entusiastas de los esports.",
+    "miniaturas": [
+      "/assets/productos/A2.1.jpg",
+      "/assets/productos/A2.2.jpg",
+      "/assets/productos/A2.3.jpg"
+    ],
+    "atributo": "Audifono"
+  },
+  {
+    "id": 9,
+    "nombre": "Logitech G335 - Black",
+    "precio": 43000,
+    "imagen": "/assets/productos/A3.jpg",
+    "descripcion": "Los Logitech G335 son audífonos gamer diseñados para ofrecer una experiencia de sonido clara y envolvente.",
+    "miniaturas": [
+      "/assets/productos/A3.1.jpg",
+      "/assets/productos/A3.2.jpg"
+    ],
+    "atributo": "Audifono"
+  },
+  {
+    "id": 10,
+    "nombre": "LG UltraGear 24GS60F-B",
+    "precio": 119000,
+    "imagen": "/assets/productos/MO1.jpg",
+    "descripcion": "El LG UltraGear 24GS60F-B es un monitor diseñado para gamers que buscan un rendimiento superior y una experiencia visual inmersiva.",
+    "miniaturas": [
+      "/assets/productos/MO1.1.jpg",
+      "/assets/productos/MO1.2.jpg",
+      "/assets/productos/MO1.3.jpg"
+    ],
+    "atributo": "Monitor"
+  },
+  {
+    "id": 11,
+    "nombre": "Xiaomi A27Qi",
+    "precio": 124000,
+    "imagen": "/assets/productos/MO2.jpg",
+    "descripcion": "El Monitor Xiaomi A27Qi es una pantalla de 27 pulgadas que ofrece una experiencia visual de alta calidad.",
+    "miniaturas": [
+      "/assets/productos/MO2.1.jpg",
+      "/assets/productos/MO2.2.jpg",
+      "/assets/productos/MO2.3.jpg"
+    ],
+    "atributo": "Monitor"
+  },
+  {
+    "id": 12,
+    "nombre": "Xiaomi G34WQi",
+    "precio": 240000,
+    "imagen": "/assets/productos/MO3.jpg",
+    "descripcion": "El Monitor Gamer Xiaomi G34WQi es una pantalla curva ultrapanorámica de 34 pulgadas diseñada para ofrecer una experiencia visual inmersiva.",
+    "miniaturas": [
+      "/assets/productos/MO3.1.jpg",
+      "/assets/productos/MO3.2.jpg",
+      "/assets/productos/MO3.3.jpg"
+    ],
+    "atributo": "Monitor"
+  }
+]
