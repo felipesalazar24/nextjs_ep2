@@ -22,22 +22,34 @@ import { useRouter, useSearchParams } from "next/navigation";
 
 export default function CheckoutSuccessPage() {
   const router = useRouter();
-  const params = useSearchParams();
-  const orderIdParam = params ? params.get("order") : null;
 
+  // estado
+  const [orderIdParam, setOrderIdParam] = useState(null);
   const [order, setOrder] = useState(null);
   const [offersMap, setOffersMap] = useState(new Map());
   const [offersLoading, setOffersLoading] = useState(true);
 
+  // Leer la query 'order' desde window.location.search (solo en cliente)
   useEffect(() => {
     try {
-      const raw = sessionStorage.getItem("lastOrder");
-      if (raw) {
-        const parsed = JSON.parse(raw);
-        if (!orderIdParam || parsed.id === orderIdParam) {
-          setOrder(parsed);
-        } else {
-          // if not matching, still show stored order
+      if (typeof window !== "undefined") {
+        const sp = new URLSearchParams(window.location.search);
+        const order = sp.get("order");
+        setOrderIdParam(order);
+      }
+    } catch (err) {
+      // ignore
+    }
+  }, []);
+
+  // Cargar el último pedido desde sessionStorage (cliente)
+  useEffect(() => {
+    try {
+      if (typeof window !== "undefined") {
+        const raw = sessionStorage.getItem("lastOrder");
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          // si orderIdParam viene, podrías validar coincidencia; por ahora mostramos lo almacenado
           setOrder(parsed);
         }
       }
@@ -46,6 +58,7 @@ export default function CheckoutSuccessPage() {
     }
   }, [orderIdParam]);
 
+  // Cargar ofertas (cliente)
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -67,7 +80,7 @@ export default function CheckoutSuccessPage() {
   }, []);
 
   const handlePrint = () => {
-    window.print();
+    if (typeof window !== "undefined") window.print();
   };
 
   const handleHome = () => {
