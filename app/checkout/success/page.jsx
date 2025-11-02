@@ -12,12 +12,22 @@ import {
 } from "react-bootstrap";
 import { useRouter, useSearchParams } from "next/navigation";
 
+/**
+ * Página de compra exitosa
+ * Lee los detalles del último pedido guardado en sessionStorage ('lastOrder')
+ * y los muestra. También incluye botones para imprimir o volver al home.
+ *
+ * Pegar en: app/checkout/success/page.jsx
+ */
+
 export default function CheckoutSuccessPage() {
   const router = useRouter();
   const params = useSearchParams();
   const orderIdParam = params ? params.get("order") : null;
 
   const [order, setOrder] = useState(null);
+  const [offersMap, setOffersMap] = useState(new Map());
+  const [offersLoading, setOffersLoading] = useState(true);
 
   useEffect(() => {
     try {
@@ -27,7 +37,7 @@ export default function CheckoutSuccessPage() {
         if (!orderIdParam || parsed.id === orderIdParam) {
           setOrder(parsed);
         } else {
-          // si no coincide, aún así mostrar el stored order
+          // if not matching, still show stored order
           setOrder(parsed);
         }
       }
@@ -35,6 +45,26 @@ export default function CheckoutSuccessPage() {
       // ignore
     }
   }, [orderIdParam]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      setOffersLoading(true);
+      try {
+        const { offersMap: om } = await loadOffers();
+        if (!mounted) return;
+        setOffersMap(om);
+      } catch (err) {
+        console.warn("Error cargando ofertas:", err);
+        if (mounted) setOffersMap(new Map());
+      } finally {
+        if (mounted) setOffersLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   const handlePrint = () => {
     window.print();
@@ -91,9 +121,10 @@ export default function CheckoutSuccessPage() {
                       <tr>
                         <th>Imagen</th>
                         <th>Nombre</th>
-                        <th>Precio</th>
-                        <th>Cantidad</th>
-                        <th>Subtotal</th>
+                        <th className="text-end">Precio</th>
+                        <th className="text-center">Oferta</th>
+                        <th className="text-center">Cantidad</th>
+                        <th className="text-end">Subtotal</th>
                       </tr>
                     </thead>
                     <tbody>
