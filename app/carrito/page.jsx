@@ -1,5 +1,3 @@
-// app/carrito/page.jsx
-// Reemplaza el archivo existente en: <repo-root>/app/carrito/page.jsx
 "use client";
 
 import React, { useMemo } from "react";
@@ -13,8 +11,8 @@ import {
   Form,
   Alert,
 } from "react-bootstrap";
-import { useCart } from "../context/CartContext"; // app/carrito -> app/context/CartContext.jsx
-import { useAuth } from "../context/AuthContext"; // para comprobar usuario y ofrecer login
+import { useCart } from "../context/CartContext";
+import { useAuth } from "../context/AuthContext";
 
 export default function CarritoPage() {
   const { user } = useAuth();
@@ -38,7 +36,6 @@ export default function CarritoPage() {
     [items]
   );
 
-  // Si no hay usuario: no permitimos usar el carrito
   if (!user) {
     return (
       <Container className="py-5">
@@ -73,7 +70,6 @@ export default function CarritoPage() {
     );
   }
 
-  // Usuario existe: mostrar carrito normal
   return (
     <Container className="py-5">
       <Row>

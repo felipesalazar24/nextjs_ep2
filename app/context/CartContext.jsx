@@ -10,15 +10,6 @@ import React, {
 import { useRouter } from "next/navigation";
 import { useAuth } from "./AuthContext";
 
-/**
- * CartContext compatible:
- * - Expone cart e items (alias) para compat con distintas páginas.
- * - Expone getTotal, getTotalItems, getCount.
- * - Todas las mutaciones requieren usuario autenticado; si no hay user redirige a /login y no modifica carrito.
- * - Persistencia por usuario en localStorage con clave cart_<id|email>.
- * - Las funciones que mutan retornan el nuevo carrito (array).
- */
-
 const CartContext = createContext({
   cart: [],
   items: [],
@@ -51,7 +42,6 @@ export function CartProvider({ children }) {
 
   const initKeyRef = useRef(null);
 
-  // Cargar carrito desde localStorage cuando cambia user (o al inicio)
   useEffect(() => {
     const key = getStorageKeyForUser(user);
     if (initKeyRef.current === key) {
@@ -83,7 +73,6 @@ export function CartProvider({ children }) {
     }
   }, [user]);
 
-  // Guardar carrito en la clave del usuario cuando cambia
   useEffect(() => {
     try {
       const key = getStorageKeyForUser(user);
@@ -190,7 +179,6 @@ export function CartProvider({ children }) {
   const getCount = () => getTotalItems();
 
   const value = {
-    // exponer ambos nombres para compatibilidad
     cart,
     items: cart,
     addToCart,

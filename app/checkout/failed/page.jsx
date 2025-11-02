@@ -12,15 +12,6 @@ import {
 } from "react-bootstrap";
 import { useRouter, useSearchParams } from "next/navigation";
 
-/**
- * Página de pago fallido
- * Basada en la página de éxito pero con mensaje/estado de fallo.
- * Lee los detalles del último intento guardado en sessionStorage ('lastFailedOrder')
- * y los muestra. Incluye botones para volver a productos o al inicio.
- *
- * Pegar en: app/checkout/failed/page.jsx
- */
-
 export default function CheckoutFailedPage() {
   const router = useRouter();
   const params = useSearchParams();

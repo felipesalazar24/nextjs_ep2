@@ -15,7 +15,7 @@ import { useState, useEffect } from "react";
 import { useParams, useRouter } from "next/navigation";
 import { useCart } from "../../context/CartContext";
 import { useAuth } from "../../context/AuthContext";
-import { getProductoById } from "../../../lib/products"; // wrapper
+import { getProductoById } from "../../../lib/products";
 
 export default function ProductoDetailPage() {
   const params = useParams();
@@ -27,10 +27,8 @@ export default function ProductoDetailPage() {
   const { addToCart } = useCart();
   const { user } = useAuth();
 
-  // ofertas local state (server + localStorage fallback)
   const [offers, setOffers] = useState([]);
 
-  // helper normalize id
   const pid = (v) => String(v ?? "").trim();
 
   useEffect(() => {
@@ -42,7 +40,6 @@ export default function ProductoDetailPage() {
     }
   }, [productId]);
 
-  // load offers (server + localStorage)
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -55,7 +52,6 @@ export default function ProductoDetailPage() {
         const stored = typeof window !== "undefined" ? localStorage.getItem("createdOffers") : null;
         const parsed = stored ? JSON.parse(stored) : [];
         if (!mounted) return;
-        // merge: admin created offers (local) override server offers for same productId
         const map = new Map();
         for (const o of serverOffers || []) map.set(pid(o.productId ?? o.id), { ...o, source: "server" });
         for (const o of parsed || []) map.set(pid(o.productId), { ...o, source: "admin" });
@@ -83,10 +79,8 @@ export default function ProductoDetailPage() {
     );
   }
 
-  // find offer for this product (merged offers)
   const offerForProduct = offers.find((o) => pid(o.productId) === pid(producto.id ?? producto._id ?? producto.sku));
 
-  // compute effective price to display and to add to cart
   const originalPrice = Number( (producto.precio ?? producto.price) || 0 );
   const hasOffer = !!(offerForProduct && (offerForProduct.newPrice || offerForProduct.percent));
   const effectivePrice = hasOffer ? Number(offerForProduct.newPrice ?? Math.round(originalPrice * (1 - (Number(offerForProduct.percent) || 0) / 100))) : originalPrice;
@@ -97,13 +91,12 @@ export default function ProductoDetailPage() {
       router.push("/login");
       return;
     }
-    // add with effective price override (so cart uses offer price)
+
     const item = { ...producto, precio: effectivePrice };
     addToCart(item, Number(cantidad));
     alert(`¡${producto.nombre} agregado al carrito!`);
   };
 
-  // safe src helper
   const safeSrc = (s) => {
     if (!s) return "/assets/productos/placeholder.png";
     try {
@@ -115,7 +108,6 @@ export default function ProductoDetailPage() {
     }
   };
 
-  // build thumbnails including main image first
   const buildThumbs = () => {
     const seen = new Set();
     const out = [];
