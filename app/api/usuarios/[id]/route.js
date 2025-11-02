@@ -17,8 +17,12 @@ export async function GET(req, { params }) {
 
 // PUT /api/usuarios/:id
 export async function PUT(req, { params }) {
+  const id = Number.parseInt(String(params?.id ?? ""), 10);
+  if (Number.isNaN(id)) {
+    return NextResponse.json({ error: "id inválido" }, { status: 400 });
+  }
+
   try {
-    const id = parseInt(params.id, 10);
     const updates = await req.json();
     const updated = await update(id, updates);
     if (!updated)
