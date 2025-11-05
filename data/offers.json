@@ -1,1 +1,30 @@
-[]
+[
+  {
+    "productId": "3",
+    "newPrice": 16000,
+    "percent": 20,
+    "oldPrice": 20000,
+    "createdAt": "2025-11-05T22:40:47.554Z"
+  },
+  {
+    "productId": "12",
+    "newPrice": 120000,
+    "percent": 50,
+    "oldPrice": 240000,
+    "createdAt": "2025-11-05T22:40:54.090Z"
+  },
+  {
+    "productId": "5",
+    "newPrice": 18200,
+    "percent": 90,
+    "oldPrice": 182000,
+    "createdAt": "2025-11-05T22:41:18.090Z"
+  },
+  {
+    "productId": "8",
+    "newPrice": 33300,
+    "percent": 10,
+    "oldPrice": 37000,
+    "createdAt": "2025-11-05T22:41:25.844Z"
+  }
+]

@@ -159,6 +159,7 @@ export default function LoginPage() {
                 <div className="small text-muted">
                   <div>mati.vegaa@duocuc.cl / adminmatias</div>
                   <div>fe.salazarv@duocuc.cl / adminfelipe</div>
+                  <div>profe@profesor.duoc.cl / profe</div>
                 </div>
               </div>
             </Card.Body>

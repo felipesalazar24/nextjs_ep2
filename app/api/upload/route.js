@@ -4,11 +4,8 @@ import { randomUUID } from "crypto";
 import { NextResponse } from "next/server";
 
 /**
- * Route handler para app/api/upload:
- * - POST: recibe JSON { files: [{ name, data }] } donde data es dataURL o base64.
- * - DELETE: recibe JSON { file: "/assets/..." } para borrar.
- * - Guarda archivos en public/assets/productos usando randomUUID() para el nombre.
- * - No utiliza 'uuid' externo para evitar dependencia.
+ * POST { files: [{ name, data }] } -> guarda en data/assets/productos y devuelve [{ files: "/assets/productos/xxx" }]
+ * DELETE { file: "/assets/..." } -> borra en data/assets/...
  */
 
 const ensureUploadsDir = (uploadsDir) => {
@@ -37,12 +34,8 @@ export async function POST(req) {
       return NextResponse.json({ files: [] }, { status: 400 });
     }
 
-    const uploadsDir = path.join(
-      process.cwd(),
-      "public",
-      "assets",
-      "productos"
-    );
+    // Cambiado: guardar en data/assets/productos en lugar de public/assets/productos
+    const uploadsDir = path.join(process.cwd(), "data", "assets", "productos");
     ensureUploadsDir(uploadsDir);
 
     const savedFiles = [];
@@ -90,6 +83,7 @@ export async function POST(req) {
       const buffer = Buffer.from(b64, "base64");
       fs.writeFileSync(destPath, buffer);
 
+      // Mantener la URL pública en /assets/productos/filename
       const publicUrl = `/assets/productos/${filename}`;
       savedFiles.push(publicUrl);
     }
@@ -97,10 +91,7 @@ export async function POST(req) {
     return NextResponse.json({ files: savedFiles }, { status: 200 });
   } catch (err) {
     console.error("app/api/upload POST error:", err);
-    return NextResponse.json(
-      { error: "Error subiendo archivos" },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 }
 
@@ -108,21 +99,26 @@ export async function DELETE(req) {
   try {
     const body = await req.json().catch(() => ({}));
     const file = body.file;
-    if (!file)
-      return NextResponse.json({ error: "No file provided" }, { status: 400 });
+    if (!file || typeof file !== "string") {
+      return NextResponse.json({ ok: false }, { status: 400 });
+    }
 
-    // quitar slash inicial si viene con /
-    const publicPath = file.replace(/^\/+/, "");
-    const fullPath = path.join(process.cwd(), "public", publicPath);
+    // Esperamos rutas como: /assets/productos/archivo.jpg
+    if (!file.startsWith("/assets/")) {
+      return NextResponse.json({ ok: false }, { status: 400 });
+    }
 
-    if (fs.existsSync(fullPath)) {
-      fs.unlinkSync(fullPath);
+    const rel = file.replace(/^\/assets\//, "");
+    const target = path.join(process.cwd(), "data", "assets", rel);
+
+    if (fs.existsSync(target)) {
+      fs.unlinkSync(target);
       return NextResponse.json({ ok: true }, { status: 200 });
     } else {
-      return NextResponse.json({ error: "File not found" }, { status: 404 });
+      return NextResponse.json({ ok: false, message: "Not found" }, { status: 404 });
     }
   } catch (err) {
     console.error("app/api/upload DELETE error:", err);
-    return NextResponse.json({ error: "Server error" }, { status: 500 });
+    return NextResponse.json({ error: String(err) }, { status: 500 });
   }
 }
