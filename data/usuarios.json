@@ -21,6 +21,16 @@
   },
   {
     "id": 3,
+    "email": "profe@profesor.duoc.cl",
+    "password": "profe",
+    "nombre": "profe",
+    "telefono": "",
+    "region": "",
+    "comuna": "",
+    "rol": "admin"
+  },
+  {
+    "id": 4,
     "email": "test1@gmail.com",
     "password": "1234",
     "nombre": "test1",
@@ -30,7 +40,7 @@
     "rol": "user"
   },
   {
-    "id": 4,
+    "id": 5,
     "email": "test2@gmail.com",
     "password": "1234",
     "nombre": "test2",
@@ -40,7 +50,7 @@
     "rol": "user"
   },
   {
-    "id": 5,
+    "id": 6,
     "email": "test3@duocuc.cl",
     "password": "1234",
     "nombre": "test3",
@@ -50,7 +60,7 @@
     "rol": "user"
   },
   {
-    "id": 6,
+    "id": 7,
     "email": "test4@duocuc.cl",
     "password": "1234",
     "nombre": "test4",
@@ -60,7 +70,7 @@
     "rol": "user"
   },
   {
-    "id": 7,
+    "id": 8,
     "email": "test5@profesor.duoc.cl",
     "password": "1234",
     "nombre": "test5",
@@ -70,7 +80,7 @@
     "rol": "user"
   },
   {
-    "id": 8,
+    "id": 9,
     "email": "test6@profesor.duoc.cl",
     "password": "1234",
     "nombre": "test6",
