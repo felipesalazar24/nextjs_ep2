@@ -50,9 +50,8 @@ export async function POST(req) {
     // Comprobación opcional: verificar que el fichero data/usuarios.json existe y es legible
     try {
       if (fs.existsSync(DATA_FILE)) {
-        const txt = fs.readFileSync(DATA_FILE, "utf8");
-        // Si quieres añadir trazas más detalladas, descomenta:
-        // console.log("usuarios.json content after add:", txt.slice(0, 1000));
+        // Si quieres ver el contenido para debug descomenta la línea siguiente:
+        // console.log("usuarios.json content after add:", fs.readFileSync(DATA_FILE, "utf8").slice(0, 1000));
       } else {
         console.warn(
           "POST /api/usuarios: data/usuarios.json no existe inmediatamente después de add()"
