@@ -1,11 +1,14 @@
 "use client";
 
-import React, { useMemo } from "react";
+import React, { useMemo, useEffect, useState } from "react";
 import { Container, Row, Col, Card, Button } from "react-bootstrap";
 import Link from "next/link";
-import { getProductos } from "../../lib/products"; // desde app/categoria -> ../../lib/products
 
-// Configuración visual y textos por categoría
+/*
+  Ahora esta página obtiene los productos desde /api/productos para calcular los contadores
+  por categoría en lugar de leer datos locales.
+*/
+
 const CATEGORIES = [
   {
     key: "mouse",
@@ -34,13 +37,31 @@ const CATEGORIES = [
 ];
 
 export default function CategoriasIndexPage() {
-  // cargar todos los productos (wrapper síncrono que lee data/productos.json)
-  const productos = useMemo(() => {
-    try {
-      return Array.isArray(getProductos()) ? getProductos() : [];
-    } catch {
-      return [];
-    }
+  const [productos, setProductos] = useState([]);
+
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const res = await fetch("/api/productos");
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}));
+          console.warn("Error fetching products:", j);
+          if (!mounted) return;
+          setProductos([]);
+          return;
+        }
+        const data = await res.json().catch(() => []);
+        if (!mounted) return;
+        setProductos(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.warn("Error loading products:", err);
+        if (mounted) setProductos([]);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   // calcular conteo e imagen representativa por categoría
@@ -69,7 +90,6 @@ export default function CategoriasIndexPage() {
       <Row className="g-4">
         {CATEGORIES.map((cat) => {
           const stat = stats[cat.key] || { count: 0, image: null };
-          // prioridad: imagen representativa de productos > asset estático en /assets/category > placeholder
           const imgSrc =
             stat.image ||
             `/assets/category/${cat.key}.png` ||
@@ -133,6 +153,7 @@ export default function CategoriasIndexPage() {
           );
         })}
       </Row>
+
       {/* Información adicional */}
       <Row className="mt-5">
         <Col className="text-center">

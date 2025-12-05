@@ -17,12 +17,10 @@ import { useRouter } from "next/navigation";
 import { useAuth } from "../../../context/AuthContext";
 
 /**
- * Página administrativa de Ofertas (actualizada)
- * - Revisión de permisos inline (sin nuevos archivos).
- * - Spinner mientras auth se hidrata; espera breve antes de redirigir si user === null.
- * - Muestra el mismo mensaje de acceso denegado que solicitaste cuando no es admin.
+ * Página administrativa de Ofertas (actualizada para usar /api/productos)
  *
- * Ahora el botón envía al Home (app/page.jsx).
+ * - Ahora las ofertas se derivan de los productos (producto.oferta + producto.oferPorcentaje)
+ * - Crear/Eliminar ofertas se hace mediante PATCH a /api/productos (body: { id, oferta, oferPorcentaje })
  */
 
 function userIsAdmin(user) {
@@ -55,8 +53,6 @@ export default function AdminOffersPage() {
   const router = useRouter();
 
   const [productos, setProductos] = useState([]);
-  const [serverOffers, setServerOffers] = useState([]);
-  const [createdOffers, setCreatedOffers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -70,7 +66,6 @@ export default function AdminOffersPage() {
 
   const isAdmin = useMemo(() => userIsAdmin(user), [user]);
 
-  // Avoid immediate redirect; wait a short timeout if user === null
   useEffect(() => {
     let t;
     if (user === null) {
@@ -89,38 +84,19 @@ export default function AdminOffersPage() {
       setLoading(true);
       setError(null);
       try {
-        const [pRes, oRes] = await Promise.all([
-          fetch("/api/productos"),
-          fetch("/api/offers").catch(() => null),
-        ]);
-
+        const pRes = await fetch("/api/productos");
         if (!pRes.ok) {
           const data = await pRes.json().catch(() => ({}));
           throw new Error(data.error || "Error al cargar productos");
         }
         const prodData = await pRes.json().catch(() => []);
-        let offersData = [];
-        if (oRes && oRes.ok) {
-          offersData = await oRes.json().catch(() => []);
-        }
-
-        const stored =
-          typeof window !== "undefined"
-            ? localStorage.getItem("createdOffers")
-            : null;
-        const parsed = stored ? JSON.parse(stored) : [];
-
         if (!mounted) return;
         setProductos(Array.isArray(prodData) ? prodData : []);
-        setServerOffers(Array.isArray(offersData) ? offersData : []);
-        setCreatedOffers(Array.isArray(parsed) ? parsed : []);
       } catch (err) {
         console.error(err);
         if (!mounted) return;
         setError(err.message || "Error al cargar datos");
         setProductos([]);
-        setServerOffers([]);
-        setCreatedOffers([]);
       } finally {
         if (mounted) setLoading(false);
       }
@@ -131,49 +107,31 @@ export default function AdminOffersPage() {
     };
   }, []);
 
+  // derive ofertas from productos
   const ofertas = useMemo(() => {
-    const map = new Map();
-
-    for (const o of serverOffers || []) {
-      const pid = String(o.productId ?? o.id ?? o.product?.id ?? "");
-      if (!pid) continue;
-      map.set(pid, { ...o, source: "server" });
-    }
-
-    for (const o of createdOffers || []) {
-      const pid = String(o.productId ?? "");
-      if (!pid) continue;
-      map.set(pid, { ...o, source: "admin" });
-    }
-
     const arr = [];
-    for (const [pid, o] of map.entries()) {
-      const prod = productos.find(
-        (p) => String(p.id ?? p._id ?? p.sku) === pid
-      );
-      if (!prod) continue;
+    for (const p of productos || []) {
+      const pid = String(p.id ?? p._id ?? p.sku ?? "");
+      const ofertaFlag = !!p.oferta;
+      const percent = Number(p.oferPorcentaje || 0) || 0;
+      if (!ofertaFlag || percent <= 0) continue;
       arr.push({
         productId: pid,
-        product: prod,
-        oldPrice: o.oldPrice ?? prod.precio ?? null,
-        newPrice: o.newPrice ?? null,
-        percent:
-          o.percent ??
-          (o.oldPrice && o.newPrice
-            ? Math.round(((o.oldPrice - o.newPrice) / o.oldPrice) * 100)
-            : 0),
-        source: o.source || "admin",
-        raw: o,
+        product: p,
+        oldPrice: Number(p.precio ?? 0),
+        newPrice: Math.round(Number(p.precio ?? 0) * (1 - percent / 100)),
+        percent,
+        source: "server",
+        raw: p,
       });
     }
-
     arr.sort(
       (a, b) =>
         (b.percent || 0) - (a.percent || 0) ||
         (a.newPrice || 0) - (b.newPrice || 0)
     );
     return arr;
-  }, [serverOffers, createdOffers, productos]);
+  }, [productos]);
 
   const openCreateModal = () => {
     setModalProductId("");
@@ -211,8 +169,8 @@ export default function AdminOffersPage() {
     }
 
     const v = Number(modalValue);
-    let newPrice = null;
     let percent = null;
+    let newPrice = null;
 
     if (modalType === "percent") {
       if (isNaN(v) || v <= 0 || v >= 100) {
@@ -230,85 +188,56 @@ export default function AdminOffersPage() {
       percent = Math.round(((basePrice - newPrice) / basePrice) * 100);
     }
 
-    const offerRecord = {
-      productId: String(modalProductId),
-      newPrice,
-      percent,
-      oldPrice: basePrice,
-      createdAt: new Date().toISOString(),
-    };
-
+    const id = String(modalProductId);
     setModalSaving(true);
-    let saved = false;
     try {
-      const res = await fetch("/api/offers", {
-        method: "POST",
+      // PATCH to /api/productos with body { id, oferta: true, oferPorcentaje: percent }
+      const res = await fetch("/api/productos", {
+        method: "PATCH",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(offerRecord),
+        body: JSON.stringify({ id, oferta: true, oferPorcentaje: percent }),
       });
-      if (res.ok) {
-        const json = await res.json().catch(() => null);
-        if (json && json.record) {
-          setServerOffers((prev) => [...(prev || []), json.record]);
-        } else {
-          setServerOffers((prev) => [...(prev || []), offerRecord]);
-        }
-        saved = true;
-      } else {
-        console.warn("POST /api/offers responded:", res.status);
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}));
+        throw new Error(j.error || "Error creando oferta");
       }
-    } catch (err) {
-      console.warn("Error POST /api/offers:", err);
-    }
-
-    if (!saved) {
-      try {
-        const raw = localStorage.getItem("createdOffers");
-        const parsed = raw ? JSON.parse(raw) : [];
-        parsed.push(offerRecord);
-        localStorage.setItem("createdOffers", JSON.stringify(parsed));
-        setCreatedOffers(parsed);
-        saved = true;
-      } catch (err) {
-        console.error("No se pudo almacenar oferta en localStorage", err);
-        setModalError("No se pudo guardar la oferta (ver consola)");
-        setModalSaving(false);
-        return;
-      }
-    }
-
-    if (saved) {
+      // refresh products list
+      const refreshed = await fetch("/api/productos").then((r) =>
+        r.ok ? r.json() : []
+      );
+      setProductos(Array.isArray(refreshed) ? refreshed : []);
       setSuccessMsg("Oferta creada correctamente");
       setTimeout(() => setSuccessMsg(null), 3000);
       closeCreateModal();
+    } catch (err) {
+      console.warn("Error creating offer:", err);
+      setModalError(err.message || "No se pudo crear oferta");
+    } finally {
+      setModalSaving(false);
     }
-    setModalSaving(false);
   };
 
   const handleDeleteOffer = async (productId) => {
     const pid = String(productId);
-    setServerOffers((prev) =>
-      (prev || []).filter((o) => String(o.productId) !== pid)
+    // locally remove immediately for snappiness
+    setProductos((prev) =>
+      (prev || []).map((p) =>
+        String(p.id) === pid ? { ...p, oferta: false, oferPorcentaje: 0 } : p
+      )
     );
     try {
-      const stored = localStorage.getItem("createdOffers");
-      const parsed = stored ? JSON.parse(stored) : [];
-      const filtered = parsed.filter((o) => String(o.productId) !== pid);
-      localStorage.setItem("createdOffers", JSON.stringify(filtered));
-      setCreatedOffers(filtered);
-    } catch (err) {
-      console.warn("Error updating localStorage", err);
-    }
-    try {
-      await fetch(`/api/offers/${encodeURIComponent(pid)}`, {
-        method: "DELETE",
+      // Patch to set oferta=false
+      await fetch("/api/productos", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id: pid, oferta: false, oferPorcentaje: 0 }),
       });
     } catch (err) {
       // ignore
+      console.warn("Error removing offer on server:", err);
     }
   };
 
-  // Auth handling: show spinner while auth hydrates
   if (typeof user === "undefined") {
     return (
       <Container className="py-5 text-center">
@@ -317,7 +246,6 @@ export default function AdminOffersPage() {
     );
   }
 
-  // If not logged in (transient), show message while redirect will happen
   if (user === null) {
     return (
       <Container className="py-5">
@@ -328,7 +256,6 @@ export default function AdminOffersPage() {
     );
   }
 
-  // If logged but not admin: show unified access denied UI (Home link)
   if (!isAdmin) {
     return (
       <Container className="py-5">

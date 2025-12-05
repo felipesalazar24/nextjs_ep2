@@ -17,13 +17,7 @@ import {
 import { useAuth } from "../../context/AuthContext";
 
 /**
- * Admin Productos (actualizado para mostrar descuentos)
- * - Muestra descuento en la columna Precio: precio original (tachado) y debajo
- *   el precio con oferta + badge con % cuando corresponda.
- * - En el modal de detalle también muestra el precio tachado y el precio en oferta
- *   con el badge.
- * - No crea archivos nuevos; la lógica de ofertas está inline (lectura de /api/offers
- *   + fallback a localStorage.createdOffers). Admin local (createdOffers) sobrescribe server.
+ * Admin Productos (adaptado para usar la nueva API /api/productos)
  */
 
 function userIsAdmin(user) {
@@ -51,60 +45,15 @@ function userIsAdmin(user) {
   return false;
 }
 
-/* ---------- Helpers para ofertas (INLINE) ---------- */
-const loadOffers = async () => {
-  let serverOffers = [];
-  try {
-    const res = await fetch("/api/offers").catch(() => null);
-    if (res && res.ok) serverOffers = await res.json().catch(() => []);
-  } catch (err) {
-    serverOffers = [];
-  }
-
-  let created = [];
-  try {
-    if (typeof window !== "undefined") {
-      const raw = localStorage.getItem("createdOffers");
-      created = raw ? JSON.parse(raw) : [];
-    }
-  } catch (err) {
-    created = [];
-  }
-
-  const map = new Map();
-  for (const o of serverOffers || []) {
-    const pid = String(o.productId ?? o.id ?? "").trim();
-    if (!pid) continue;
-    map.set(pid, { ...o, source: "server" });
-  }
-  for (const o of created || []) {
-    const pid = String(o.productId ?? "").trim();
-    if (!pid) continue;
-    map.set(pid, { ...o, source: "admin" });
-  }
-  return { offersArray: Array.from(map.values()), offersMap: map };
-};
-
-const getOfferForProduct = (offersMap, product) => {
-  if (!offersMap || !product) return null;
-  const pid = String(product.id ?? product._id ?? product.sku ?? "").trim();
-  return offersMap.get(pid) || null;
-};
-
-const getEffectivePrice = (product, offer) => {
-  const raw = Number(product.precio ?? product.price ?? 0) || 0;
-  if (!offer) return { oldPrice: null, price: raw, percent: 0 };
-  const oldPrice = Number(offer.oldPrice ?? raw) || raw;
-  let price = Number(offer.newPrice ?? 0);
-  let percent = Number(offer.percent ?? 0);
-
-  if (!price && percent && oldPrice)
-    price = Math.round(oldPrice * (1 - percent / 100));
-  if (!percent && price && oldPrice)
-    percent = Math.round(((oldPrice - price) / oldPrice) * 100);
-  if (!price || price <= 0) price = raw;
-
-  return { oldPrice: oldPrice || null, price, percent: percent || 0 };
+/* ---------- Helpers para ofertas ahora derivados desde producto ---------- */
+const getOfferForProduct = (product) => {
+  if (!product) return null;
+  const oferta = !!product.oferta;
+  const percent = Number(product.oferPorcentaje || 0) || 0;
+  if (!oferta || percent <= 0) return null;
+  const oldPrice = Number(product.precio ?? 0) || 0;
+  const newPrice = Math.round(oldPrice * (1 - percent / 100));
+  return { oldPrice, price: newPrice, percent, source: "server" };
 };
 /* --------------------------------------------------- */
 
@@ -119,10 +68,6 @@ export default function AdminProductosPage() {
   const [showDetail, setShowDetail] = useState(false);
   const [detailProduct, setDetailProduct] = useState(null);
   const [selectedImage, setSelectedImage] = useState(null);
-
-  // offers state
-  const [offersMap, setOffersMap] = useState(new Map());
-  const [offersLoading, setOffersLoading] = useState(true);
 
   // While auth may still be hydrating, avoid redirecting immediately.
   useEffect(() => {
@@ -141,33 +86,20 @@ export default function AdminProductosPage() {
     const load = async () => {
       setLoading(true);
       setError("");
-      setOffersLoading(true);
       try {
-        const [resProd] = await Promise.all([
-          fetch("/api/productos"),
-          // keep offers fetch inside loadOffers below (we call it afterwards)
-        ]);
-
+        const resProd = await fetch("/api/productos");
         if (!resProd.ok) {
           const data = await resProd.json().catch(() => ({}));
           throw new Error(data.error || "Error al obtener productos");
         }
         const dataProd = await resProd.json().catch(() => []);
-
-        // load offers (server + local)
-        const { offersMap: om } = await loadOffers();
-
         if (!mounted) return;
         setProductos(Array.isArray(dataProd) ? dataProd : []);
-        setOffersMap(om);
       } catch (err) {
         if (!mounted) return;
         setError(err.message || "Error desconocido");
       } finally {
-        if (mounted) {
-          setLoading(false);
-          setOffersLoading(false);
-        }
+        if (mounted) setLoading(false);
       }
     };
     load();
@@ -181,12 +113,16 @@ export default function AdminProductosPage() {
       return;
     try {
       setDeletingId(id);
-      const res = await fetch(`/api/productos/${id}`, { method: "DELETE" });
+      // Usar el endpoint unificado: DELETE /api/productos?id=ID
+      const res = await fetch(
+        `/api/productos?id=${encodeURIComponent(String(id))}`,
+        { method: "DELETE" }
+      );
       if (!res.ok) {
         const data = await res.json().catch(() => ({}));
         throw new Error(data.error || "Error al eliminar producto");
       }
-      setProductos((prev) => prev.filter((p) => p.id !== id));
+      setProductos((prev) => prev.filter((p) => String(p.id) !== String(id)));
     } catch (err) {
       alert(err.message || "No se pudo eliminar");
     } finally {
@@ -310,8 +246,8 @@ export default function AdminProductosPage() {
                   </thead>
                   <tbody>
                     {productos.map((p, idx) => {
-                      const offer = getOfferForProduct(offersMap, p);
-                      const ef = getEffectivePrice(p, offer);
+                      const offer = getOfferForProduct(p);
+                      const ef = offer;
                       return (
                         <tr key={p.id ?? p._id ?? idx}>
                           <td style={{ width: 40 }}>{idx + 1}</td>
@@ -353,7 +289,7 @@ export default function AdminProductosPage() {
                                       color: "#777",
                                     }}
                                   >
-                                    $
+                                    ${" "}
                                     {Number(ef.oldPrice).toLocaleString(
                                       "es-CL"
                                     )}
@@ -514,12 +450,8 @@ export default function AdminProductosPage() {
                         <p>
                           <strong>Precio:</strong>{" "}
                           {(() => {
-                            const offer = getOfferForProduct(
-                              offersMap,
-                              detailProduct
-                            );
-                            const ef = getEffectivePrice(detailProduct, offer);
-                            if (ef && ef.oldPrice) {
+                            const offer = getOfferForProduct(detailProduct);
+                            if (offer && offer.oldPrice) {
                               return (
                                 <>
                                   <span
@@ -530,7 +462,7 @@ export default function AdminProductosPage() {
                                     }}
                                   >
                                     $
-                                    {Number(ef.oldPrice).toLocaleString(
+                                    {Number(offer.oldPrice).toLocaleString(
                                       "es-CL"
                                     )}
                                   </span>
@@ -540,11 +472,14 @@ export default function AdminProductosPage() {
                                       fontWeight: 700,
                                     }}
                                   >
-                                    ${Number(ef.price).toLocaleString("es-CL")}
+                                    $
+                                    {Number(offer.price).toLocaleString(
+                                      "es-CL"
+                                    )}
                                   </span>
-                                  {ef.percent ? (
+                                  {offer.percent ? (
                                     <Badge bg="danger" className="ms-2">
-                                      -{ef.percent}%
+                                      -{offer.percent}%
                                     </Badge>
                                   ) : null}
                                 </>

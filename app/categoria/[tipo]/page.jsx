@@ -14,7 +14,7 @@ import {
 } from "react-bootstrap";
 import { useParams } from "next/navigation";
 import { useCart } from "../../context/CartContext";
-import { getProductos } from "../../../lib/products"; // wrapper que expone los productos
+import { getProductImages } from "../../lib/assetsClient";
 
 // Configuración visual y textos por categoría
 const CATEGORIES = [
@@ -44,100 +44,86 @@ const CATEGORIES = [
   },
 ];
 
-/**
- * NOTA:
- * - Se añadió la lógica local de ofertas (no se crean archivos nuevos).
- * - loadOffers obtiene /api/offers y fallback a localStorage.createdOffers.
- * - getOfferForProduct / getEffectivePrice calculan precio efectivo y %.
- * - safeSrc ha sido ajustada para NO convertir rutas relativas a URLs absolutas,
- *   evitando así mismatches de hidratación SSR/client.
- */
-
-const loadOffers = async () => {
-  let serverOffers = [];
-  try {
-    const res = await fetch("/api/offers").catch(() => null);
-    if (res && res.ok) serverOffers = await res.json().catch(() => []);
-  } catch (err) {
-    serverOffers = [];
-  }
-
-  let created = [];
-  try {
-    if (typeof window !== "undefined") {
-      const raw = localStorage.getItem("createdOffers");
-      created = raw ? JSON.parse(raw) : [];
-    }
-  } catch (err) {
-    created = [];
-  }
-
-  const map = new Map();
-  for (const o of serverOffers || []) {
-    const pid = String(o.productId ?? o.id ?? "").trim();
-    if (!pid) continue;
-    map.set(pid, { ...o, source: "server" });
-  }
-  for (const o of created || []) {
-    const pid = String(o.productId ?? "").trim();
-    if (!pid) continue;
-    map.set(pid, { ...o, source: "admin" });
-  }
-
-  return { offersArray: Array.from(map.values()), offersMap: map };
-};
-
-const getOfferForProduct = (offersMap, product) => {
-  if (!offersMap || !product) return null;
-  const pid = String(product.id ?? product._id ?? product.sku ?? "").trim();
-  return offersMap.get(pid) || null;
-};
-
-const getEffectivePrice = (product, offer) => {
-  const raw = Number(product.precio ?? product.price ?? 0) || 0;
-  if (!offer) return { oldPrice: null, price: raw, percent: 0 };
-  const oldPrice = Number(offer.oldPrice ?? raw) || raw;
-  let price = Number(offer.newPrice ?? 0);
-  let percent = Number(offer.percent ?? 0);
-
-  if (!price && percent && oldPrice)
-    price = Math.round(oldPrice * (1 - percent / 100));
-  if (!percent && price && oldPrice)
-    percent = Math.round(((oldPrice - price) / oldPrice) * 100);
-  if (!price || price <= 0) price = raw;
-
-  return { oldPrice: oldPrice || null, price, percent: percent || 0 };
-};
-
-/**
- * safeSrc (IMPORTANT)
- * - Devuelve exactamente la misma cadena tanto en servidor como en cliente.
- * - No convierte rutas relativas a URL absolutas con `window` o `new URL`,
- *   evitando así mismatches de hidratación.
- * - Acepta data: y http(s) absoluto; en otros casos devuelve la ruta tal cual.
- */
 const safeSrc = (s) => {
   if (!s) return "/assets/productos/placeholder.png";
   try {
     const str = String(s);
     if (str.startsWith("data:") || /^https?:\/\//i.test(str)) return str;
-    // Return the path as-is (relative paths stay relative)
     return str;
   } catch {
     return "/assets/productos/placeholder.png";
   }
 };
 
+const getOfferForProduct = (product) => {
+  if (!product) return null;
+  const oferta = !!product.oferta;
+  const percent = Number(product.oferPorcentaje || 0) || 0;
+  if (!oferta || percent <= 0) return null;
+  const oldPrice = Number(product.precio ?? 0);
+  const price = Math.round(oldPrice * (1 - percent / 100));
+  return { oldPrice: oldPrice || null, price, percent: percent || 0 };
+};
+
 export default function CategoriaPage() {
   const params = useParams();
   const tipoCategoria = params?.tipo ?? "";
-  const productos = getProductos();
+  const [productos, setProductos] = useState([]);
   const { addToCart } = useCart();
 
-  // Normalizar: el parámetro de ruta puede venir en minúsculas
   const tipoLower = String(tipoCategoria).toLowerCase();
 
-  // Filtrar productos por categoría (ignora mayúsculas / minúsculas)
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      try {
+        const data = await fetch("/api/productos").then((r) =>
+          r.ok ? r.json() : []
+        );
+        if (!mounted) return;
+        setProductos(Array.isArray(data) ? data : []);
+      } catch (err) {
+        console.warn("Error cargando productos por categoría", err);
+        if (mounted) setProductos([]);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // prefetch images for this category's products (first 40)
+  const [imagesMap, setImagesMap] = useState(new Map());
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const filtered = productos
+        .filter(
+          (p) =>
+            String(p.atributo || p.categoria || "").toLowerCase() === tipoLower
+        )
+        .slice(0, 40);
+      const promises = filtered.map(async (p) => {
+        const imgs = await getProductImages(
+          p.nombre || p.id,
+          p.atributo || p.categoria || "",
+          6
+        );
+        return [String(p.id ?? p._id ?? p.nombre), imgs];
+      });
+      const results = await Promise.all(promises);
+      if (!mounted) return;
+      setImagesMap((prev) => {
+        const map = new Map(prev);
+        for (const [k, imgs] of results) map.set(k, imgs);
+        return map;
+      });
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [productos, tipoLower]);
+
   const productosCategoria = productos.filter(
     (producto) =>
       String(producto.atributo || producto.categoria || "").toLowerCase() ===
@@ -154,49 +140,26 @@ export default function CategoriaPage() {
     return variants[atributo] || "secondary";
   };
 
-  // Preparar datos para los "cards" de navegación de categorías:
-  // - contar productos por categoría
-  // - elegir una imagen representativa (primer producto de la categoría)
   const categoriaStats = useMemo(() => {
     const map = {};
-    for (const cat of CATEGORIES) {
+    for (const cat of CATEGORIES)
       map[cat.key] = { count: 0, image: null, meta: cat };
-    }
     for (const p of productos) {
       const key = String(p.atributo || p.categoria || "").toLowerCase();
       if (!map[key]) continue;
       map[key].count += 1;
-      if (!map[key].image && p.imagen) map[key].image = p.imagen;
+      if (
+        !map[key].image &&
+        (p.imagen || (Array.isArray(p.miniaturas) && p.miniaturas[0]))
+      ) {
+        map[key].image =
+          p.imagen || (Array.isArray(p.miniaturas) && p.miniaturas[0]) || null;
+      }
     }
     return map;
   }, [productos]);
 
-  // Mostrar cards de categorías EXCLUYENDO la categoría activa
   const categoriasParaMostrar = CATEGORIES.filter((c) => c.key !== tipoLower);
-
-  // Offers state
-  const [offersMap, setOffersMap] = useState(new Map());
-  const [offersLoading, setOffersLoading] = useState(true);
-
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      setOffersLoading(true);
-      try {
-        const { offersMap: om } = await loadOffers();
-        if (!mounted) return;
-        setOffersMap(om);
-      } catch (err) {
-        console.warn("Error cargando ofertas:", err);
-        if (mounted) setOffersMap(new Map());
-      } finally {
-        if (mounted) setOffersLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   const handleAddToCart = (product, price) => {
     try {
@@ -223,17 +186,21 @@ export default function CategoriaPage() {
 
       <h2 className="mb-4 text-capitalize">{tipoCategoria}</h2>
 
-      {offersLoading && (
-        <div className="text-center py-4">
-          <Spinner animation="border" role="status" />
-        </div>
-      )}
-
       {productosCategoria.length > 0 ? (
         <Row className="g-4">
           {productosCategoria.map((producto) => {
-            const offer = getOfferForProduct(offersMap, producto);
-            const ef = getEffectivePrice(producto, offer);
+            const imgs =
+              imagesMap.get(
+                String(producto.id ?? producto._id ?? producto.nombre)
+              ) || [];
+            const offer = getOfferForProduct(producto);
+            const ef = offer
+              ? {
+                  oldPrice: offer.oldPrice,
+                  price: offer.price,
+                  percent: offer.percent,
+                }
+              : null;
             return (
               <Col key={producto.id} md={4} lg={3}>
                 <Card className="h-100 shadow-sm">
@@ -261,7 +228,7 @@ export default function CategoriaPage() {
                     ) : null}
                     <Card.Img
                       variant="top"
-                      src={safeSrc(producto.imagen)}
+                      src={safeSrc(imgs.length ? imgs[0] : producto.imagen)}
                       style={{
                         height: 160,
                         objectFit: "contain",
@@ -289,7 +256,6 @@ export default function CategoriaPage() {
                       </Badge>
                     </div>
 
-                    {/* Precio: mostrar tachado + oferta si aplica, mantener formato original si no */}
                     <div className="text-primary fw-bold mb-3">
                       {ef && ef.oldPrice ? (
                         <div>
@@ -320,11 +286,15 @@ export default function CategoriaPage() {
                       >
                         Ver Detalles
                       </Link>
-
                       <Button
                         variant="primary"
                         className="btn-sm"
-                        onClick={() => handleAddToCart(producto, ef.price)}
+                        onClick={() =>
+                          handleAddToCart(
+                            producto,
+                            ef ? ef.price : producto.precio
+                          )
+                        }
                       >
                         Agregar al Carrito
                       </Button>
@@ -350,10 +320,6 @@ export default function CategoriaPage() {
         </Row>
       )}
 
-      {/* ---------------------------
-          Panel de categorías visual (cards) con imagen, badge y botón "Explorar Categoría"
-          SE EXCLUYE la categoría activa (no aparece entre los cards)
-          --------------------------- */}
       <div className="mt-5">
         <h4 className="mb-3">Explorar categorías</h4>
         <Row className="g-4">

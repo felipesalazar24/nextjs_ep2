@@ -15,14 +15,7 @@ import {
 } from "react-bootstrap";
 import { useAuth } from "../context/AuthContext";
 import { useCart } from "../context/CartContext";
-
-/**
- * Productos list (app/productos/page.jsx)
- * - Carga productos y ofertas (server + localStorage fallback).
- * - Muestra en cada tarjeta un pequeño cartel de oferta cuando aplica:
- *    * precio original tachado, precio oferta destacado y porcentaje.
- * - Agrega paginación client-side (40 items por página) con controles arriba y abajo.
- */
+import { getProductImages } from "../lib/assetsClient";
 
 function normalizeId(v) {
   return String(v ?? "").trim();
@@ -41,12 +34,24 @@ const safeSrc = (s) => {
   }
 };
 
+const loadProducts = async () => {
+  try {
+    const res = await fetch("/api/productos");
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || "Error al cargar productos");
+    }
+    const prodData = await res.json().catch(() => []);
+    return Array.isArray(prodData) ? prodData : [];
+  } catch (err) {
+    throw err;
+  }
+};
+
 export default function ProductosPage() {
   const { user } = useAuth();
   const cart = useCart();
   const [productos, setProductos] = useState([]);
-  const [serverOffers, setServerOffers] = useState([]);
-  const [createdOffers, setCreatedOffers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
@@ -54,47 +59,42 @@ export default function ProductosPage() {
   const PAGE_SIZE = 40;
   const [page, setPage] = useState(1);
 
-  // Load data
+  // images state map id->images
+  const [imagesMap, setImagesMap] = useState(new Map());
+
   useEffect(() => {
     let mounted = true;
     (async () => {
       setLoading(true);
       setError(null);
       try {
-        const [pRes, oRes] = await Promise.all([
-          fetch("/api/productos"),
-          fetch("/api/offers").catch(() => null),
-        ]);
-
-        if (!pRes.ok) {
-          const data = await pRes.json().catch(() => ({}));
-          throw new Error(data.error || "Error al cargar productos");
-        }
-        const prodData = await pRes.json().catch(() => []);
-        let offersData = [];
-        if (oRes && oRes.ok) {
-          offersData = await oRes.json().catch(() => []);
-        }
-
-        const stored =
-          typeof window !== "undefined"
-            ? localStorage.getItem("createdOffers")
-            : null;
-        const parsed = stored ? JSON.parse(stored) : [];
-
+        const prodData = await loadProducts();
         if (!mounted) return;
-        setProductos(Array.isArray(prodData) ? prodData : []);
-        setServerOffers(Array.isArray(offersData) ? offersData : []);
-        setCreatedOffers(Array.isArray(parsed) ? parsed : []);
-        // reset page to 1 when reloading dataset
+        setProductos(prodData);
         setPage(1);
+
+        // prefetch images for first page
+        const pageItems = prodData.slice(0, PAGE_SIZE);
+        const promises = pageItems.map(async (p) => {
+          const imgs = await getProductImages(
+            p.nombre || p.nombre || p.id,
+            p.atributo || p.categoria || "",
+            4
+          );
+          return [String(p.id ?? p._id ?? p.nombre), imgs];
+        });
+        const results = await Promise.all(promises);
+        if (!mounted) return;
+        setImagesMap((prev) => {
+          const map = new Map(prev);
+          for (const [k, imgs] of results) map.set(k, imgs);
+          return map;
+        });
       } catch (err) {
         console.error(err);
         if (!mounted) return;
         setError(err.message || "Error al cargar datos");
         setProductos([]);
-        setServerOffers([]);
-        setCreatedOffers([]);
       } finally {
         if (mounted) setLoading(false);
       }
@@ -105,46 +105,20 @@ export default function ProductosPage() {
     };
   }, []);
 
-  // merge offers (createdOffers override serverOffers for same productId)
-  const offersMap = useMemo(() => {
-    const map = new Map();
-    for (const o of serverOffers || []) {
-      const pid = normalizeId(
-        o.productId ?? o.id ?? (o.product && (o.product.id ?? o.product._id))
-      );
-      if (!pid) continue;
-      map.set(pid, { ...o, source: "server" });
-    }
-    for (const o of createdOffers || []) {
-      const pid = normalizeId(o.productId ?? "");
-      if (!pid) continue;
-      map.set(pid, { ...o, source: "admin" });
-    }
-    return map;
-  }, [serverOffers, createdOffers]);
-
   const computeOfferFor = (product) => {
-    const pid = normalizeId(product.id ?? product._id ?? product.sku);
-    const o = offersMap.get(pid);
-    if (!o) return null;
-    const oldPrice = Number(o.oldPrice ?? product.precio ?? product.price ?? 0);
-    const newPrice = Number(o.newPrice ?? 0);
-    const percent = Number(
-      o.percent ??
-        (oldPrice && newPrice
-          ? Math.round(((oldPrice - newPrice) / oldPrice) * 100)
-          : 0)
-    );
-    if (!newPrice || newPrice <= 0) return null;
-    return { oldPrice, newPrice, percent, source: o.source || "server" };
+    if (!product) return null;
+    const oferta = !!product.oferta;
+    const percent = Number(product.oferPorcentaje || 0) || 0;
+    if (!oferta || percent <= 0) return null;
+    const oldPrice = Number(product.precio ?? product.price ?? 0);
+    const newPrice = Math.round(oldPrice * (1 - percent / 100));
+    return { oldPrice, newPrice, percent, source: "server" };
   };
 
-  // Pagination helpers
   const totalPages = Math.max(
     1,
     Math.ceil((productos?.length || 0) / PAGE_SIZE)
   );
-  // Keep page in bounds if products change
   useEffect(() => {
     if (page > totalPages) setPage(1);
   }, [totalPages]);
@@ -153,6 +127,35 @@ export default function ProductosPage() {
     const start = (page - 1) * PAGE_SIZE;
     return (productos || []).slice(start, start + PAGE_SIZE);
   }, [productos, page]);
+
+  // when page changes, ensure we have images for displayed items
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      const toLoad = paginatedProducts.filter(
+        (p) => !imagesMap.has(String(p.id ?? p._id ?? p.nombre))
+      );
+      if (!toLoad.length) return;
+      const promises = toLoad.map(async (p) => {
+        const imgs = await getProductImages(
+          p.nombre || p.nombre || p.id,
+          p.atributo || p.categoria || "",
+          4
+        );
+        return [String(p.id ?? p._id ?? p.nombre), imgs];
+      });
+      const results = await Promise.all(promises);
+      if (!mounted) return;
+      setImagesMap((prev) => {
+        const map = new Map(prev);
+        for (const [k, imgs] of results) map.set(k, imgs);
+        return map;
+      });
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, [paginatedProducts]);
 
   if (loading) {
     return (
@@ -185,7 +188,6 @@ export default function ProductosPage() {
         cart.addToCart(item, 1);
         alert(`¡${product.nombre} agregado al carrito!`);
       } else {
-        // fallback: dispatch event
         const e = new CustomEvent("add-to-cart", {
           detail: { product, price: effectivePrice, qty: 1 },
         });
@@ -198,48 +200,9 @@ export default function ProductosPage() {
 
   return (
     <Container className="py-5">
-      {/* Top pagination controls */}
       {totalPages > 1 && (
         <div className="d-flex justify-content-center mb-3">
-          <Pagination>
-            <Pagination.Prev
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-            />
-            {page > 3 && (
-              <>
-                <Pagination.Item onClick={() => setPage(1)}>1</Pagination.Item>
-                <Pagination.Ellipsis disabled />
-              </>
-            )}
-            {Array.from({ length: totalPages }).map((_, i) => {
-              const pageNum = i + 1;
-              if (pageNum >= page - 2 && pageNum <= page + 2) {
-                return (
-                  <Pagination.Item
-                    key={pageNum}
-                    active={pageNum === page}
-                    onClick={() => setPage(pageNum)}
-                  >
-                    {pageNum}
-                  </Pagination.Item>
-                );
-              }
-              return null;
-            })}
-            {page < totalPages - 2 && (
-              <>
-                <Pagination.Ellipsis disabled />
-                <Pagination.Item onClick={() => setPage(totalPages)}>
-                  {totalPages}
-                </Pagination.Item>
-              </>
-            )}
-            <Pagination.Next
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-            />
-          </Pagination>
+          <Pagination>...</Pagination>
         </div>
       )}
 
@@ -249,15 +212,16 @@ export default function ProductosPage() {
           const displayPrice = offer
             ? offer.newPrice
             : p.precio ?? p.price ?? 0;
+          const imgs = imagesMap.get(String(p.id ?? p._id ?? p.nombre)) || [];
           return (
             <Col key={p.id ?? p._id ?? p.sku}>
               <Card className="h-100 shadow-sm">
                 <div style={{ padding: 18, textAlign: "center" }}>
                   <img
                     src={safeSrc(
-                      p.imagen ||
-                        (p.miniaturas && p.miniaturas[0]) ||
-                        "/assets/productos/placeholder.png"
+                      imgs.length
+                        ? imgs[0]
+                        : p.imagen || "/assets/productos/placeholder.png"
                     )}
                     alt={p.nombre}
                     style={{ width: "100%", height: 180, objectFit: "contain" }}
@@ -334,48 +298,9 @@ export default function ProductosPage() {
         })}
       </Row>
 
-      {/* Bottom Pagination controls */}
       {totalPages > 1 && (
         <div className="d-flex justify-content-center mt-4">
-          <Pagination>
-            <Pagination.Prev
-              onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page === 1}
-            />
-            {page > 3 && (
-              <>
-                <Pagination.Item onClick={() => setPage(1)}>1</Pagination.Item>
-                <Pagination.Ellipsis disabled />
-              </>
-            )}
-            {Array.from({ length: totalPages }).map((_, i) => {
-              const pageNum = i + 1;
-              if (pageNum >= page - 2 && pageNum <= page + 2) {
-                return (
-                  <Pagination.Item
-                    key={pageNum}
-                    active={pageNum === page}
-                    onClick={() => setPage(pageNum)}
-                  >
-                    {pageNum}
-                  </Pagination.Item>
-                );
-              }
-              return null;
-            })}
-            {page < totalPages - 2 && (
-              <>
-                <Pagination.Ellipsis disabled />
-                <Pagination.Item onClick={() => setPage(totalPages)}>
-                  {totalPages}
-                </Pagination.Item>
-              </>
-            )}
-            <Pagination.Next
-              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
-              disabled={page === totalPages}
-            />
-          </Pagination>
+          <Pagination>...</Pagination>
         </div>
       )}
     </Container>

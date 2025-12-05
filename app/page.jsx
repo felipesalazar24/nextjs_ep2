@@ -12,6 +12,7 @@ import {
 } from "react-bootstrap";
 import Link from "next/link";
 import { useCart } from "./context/CartContext";
+import { getProductImages } from "./lib/assetsClient";
 
 // Componente para imagen con placeholder en caso de error
 const ProductImage = (props) => {
@@ -38,51 +39,27 @@ const ProductImage = (props) => {
   );
 };
 
-/**
- * Helper de ofertas (inline, sin crear archivos nuevos)
- * - loadOffers() => intenta /api/offers y fallback a localStorage.createdOffers
- * - getOfferForProduct(offersMap, product)
- * - getEffectivePrice(product, offer)
- */
-const loadOffers = async () => {
-  let serverOffers = [];
+const loadProducts = async () => {
   try {
-    const res = await fetch("/api/offers").catch(() => null);
-    if (res && res.ok) serverOffers = await res.json().catch(() => []);
-  } catch (err) {
-    serverOffers = [];
+    const res = await fetch("/api/productos");
+    if (!res.ok) return [];
+    const json = await res.json();
+    return Array.isArray(json) ? json : [];
+  } catch {
+    return [];
   }
-
-  let created = [];
-  try {
-    if (typeof window !== "undefined") {
-      const raw = localStorage.getItem("createdOffers");
-      created = raw ? JSON.parse(raw) : [];
-    }
-  } catch (err) {
-    created = [];
-  }
-
-  // Merge: created (admin/local) overrides server
-  const map = new Map();
-  for (const o of serverOffers || []) {
-    const pid = String(o.productId ?? o.id ?? "").trim();
-    if (!pid) continue;
-    map.set(pid, { ...o, source: "server" });
-  }
-  for (const o of created || []) {
-    const pid = String(o.productId ?? "").trim();
-    if (!pid) continue;
-    map.set(pid, { ...o, source: "admin" });
-  }
-
-  return { offersArray: Array.from(map.values()), offersMap: map };
 };
 
-const getOfferForProduct = (offersMap, product) => {
-  if (!offersMap || !product) return null;
-  const pid = String(product.id ?? product._id ?? product.sku ?? "").trim();
-  return offersMap.get(pid) || null;
+const getOfferForProduct = (product) => {
+  if (!product) return null;
+  const oferta = !!product.oferta;
+  const percent = Number(product.oferPorcentaje || 0) || 0;
+  if (!oferta || (percent <= 0 && !product.oferPorcentaje)) return null;
+  const oldPrice = Number(product.precio ?? 0) || 0;
+  const newPrice = percent
+    ? Math.round(oldPrice * (1 - percent / 100))
+    : oldPrice;
+  return { oldPrice, newPrice, percent, source: "server" };
 };
 
 const getEffectivePrice = (product, offer) => {
@@ -107,10 +84,8 @@ export default function HomePage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // ofertas
-  const [offersMap, setOffersMap] = useState(new Map());
-  const [offersList, setOffersList] = useState([]);
-  const [offersLoading, setOffersLoading] = useState(true);
+  // imagenes cache/local state para UI (map productId -> { primary, images })
+  const [imagesMap, setImagesMap] = useState(new Map());
 
   const { addToCart } = useCart();
 
@@ -120,80 +95,52 @@ export default function HomePage() {
     async function fetchData() {
       setLoading(true);
       setError(null);
-      setOffersLoading(true);
 
       try {
-        // Traer productos y ventas en paralelo.
-        const [prodRes, salesRes] = await Promise.all([
-          fetch("/api/productos"),
-          fetch(`/api/sales?ts=${Date.now()}`),
+        const [prodData, salesRes] = await Promise.all([
+          loadProducts(),
+          fetch(`/api/sales?ts=${Date.now()}`).catch(() => null),
         ]);
-
-        if (!prodRes.ok) throw new Error("Error al cargar productos");
-
-        const prodData = await prodRes.json();
 
         let salesData = [];
         if (salesRes && salesRes.ok) {
-          salesData = await salesRes.json();
+          salesData = await salesRes.json().catch(() => []);
         } else {
           salesData = [];
         }
-
-        // Cargar ofertas (server + localStorage fallback)
-        const { offersMap: om } = await loadOffers();
 
         if (!mounted) return;
 
         setProductos(Array.isArray(prodData) ? prodData : []);
         setSales(Array.isArray(salesData) ? salesData : []);
-        setOffersMap(om);
 
-        // construir lista de ofertas asociadas a productos (filtrar solo con newPrice válido)
-        const arr = [];
-        for (const [pid, o] of om.entries()) {
-          const prod = (prodData || []).find(
-            (p) => String(p.id ?? p._id ?? p.sku) === pid
+        // fetch images for first 8 candidates (top will be computed later)
+        const forProducts = Array.isArray(prodData)
+          ? prodData.slice(0, 12)
+          : [];
+        const promises = forProducts.map(async (p) => {
+          const imgs = await getProductImages(
+            p.nombre || p.nombre || p.id,
+            p.atributo || p.categoria || "",
+            4
           );
-          if (!prod) continue;
-          const oldPrice = Number(o.oldPrice ?? prod.precio ?? 0);
-          const newPrice = Number(o.newPrice ?? 0);
-          const percent =
-            Number(o.percent) ||
-            (oldPrice && newPrice
-              ? Math.round(((oldPrice - newPrice) / oldPrice) * 100)
-              : 0);
-          if (!newPrice || newPrice <= 0) continue;
-          arr.push({
-            productId: pid,
-            product: prod,
-            oldPrice,
-            newPrice,
-            percent,
-            source: o.source || "server",
-            raw: o,
-          });
-        }
-        // sort by percent desc
-        arr.sort(
-          (a, b) =>
-            (b.percent || 0) - (a.percent || 0) ||
-            (a.newPrice || 0) - (b.newPrice || 0)
-        );
-        setOffersList(arr);
+          return [String(p.id ?? p._id ?? p.nombre), imgs];
+        });
+        const results = await Promise.all(promises);
+        if (!mounted) return;
+        setImagesMap((prev) => {
+          const map = new Map(prev);
+          for (const [k, imgs] of results) map.set(k, imgs);
+          return map;
+        });
       } catch (err) {
         console.error(err);
         if (!mounted) return;
         setError(err.message || "Error");
         setProductos([]);
         setSales([]);
-        setOffersMap(new Map());
-        setOffersList([]);
       } finally {
-        if (mounted) {
-          setLoading(false);
-          setOffersLoading(false);
-        }
+        if (mounted) setLoading(false);
       }
     }
 
@@ -221,7 +168,6 @@ export default function HomePage() {
     );
   }
 
-  // Construir mapa de ventas (cantidad vendida por producto)
   const soldMap = {};
   for (const sale of Array.isArray(sales) ? sales : []) {
     if (!sale || !Array.isArray(sale.items)) continue;
@@ -233,34 +179,23 @@ export default function HomePage() {
     }
   }
 
-  // Añadir totalSold a cada producto de forma robusta
   const productsWithSales = (Array.isArray(productos) ? productos : []).map(
     (p) => {
       const key = String(p.id ?? p._id ?? p.sku ?? p.nombre ?? "");
-      return { ...p, totalSold: soldMap[key] || 0 };
+      const offer = getOfferForProduct(p);
+      const ef = getEffectivePrice(p, offer);
+      const imgs = imagesMap.get(String(p.id ?? p._id ?? p.nombre)) || [];
+      return { ...p, totalSold: soldMap[key] || 0, offer, ef, assets: imgs };
     }
   );
 
-  // Ordenar por totalSold y tomar top 8
   const top = productsWithSales
     .slice()
     .sort((a, b) => (b.totalSold || 0) - (a.totalSold || 0))
     .slice(0, 8);
 
-  // Si no hay ventas registradas usamos los primeros 8 productos como fallback
   const hasSales = top.some((p) => (p.totalSold || 0) > 0);
-  const destacados = hasSales ? top : (productos || []).slice(0, 8);
-
-  // Merge offers into destacados so offers appear inline among products
-  const destacadosWithOffers = destacados.map((p) => {
-    const offer = getOfferForProduct(offersMap, p);
-    const ef = getEffectivePrice(p, offer);
-    return { ...p, offer, ef };
-  });
-
-  // Preparar filas (2 filas de 4) using merged list
-  const primeraFila = destacadosWithOffers.slice(0, 4);
-  const segundaFila = destacadosWithOffers.slice(4, 8);
+  const destacados = hasSales ? top : (productsWithSales || []).slice(0, 8);
 
   const safeSrc = (s) => {
     if (!s)
@@ -291,9 +226,11 @@ export default function HomePage() {
     }
   };
 
+  const primeraFila = destacados.slice(0, 4);
+  const segundaFila = destacados.slice(4, 8);
+
   return (
     <>
-      {/* Hero Section */}
       <section
         className="hero-section py-5"
         style={{ background: "#0b1226", color: "#fff" }}
@@ -330,7 +267,6 @@ export default function HomePage() {
         </Container>
       </section>
 
-      {/* Ofertas especiales (integradas entre los destacados) */}
       <Container className="py-5">
         <Row className="text-center mb-3">
           <Col>
@@ -339,7 +275,6 @@ export default function HomePage() {
           </Col>
         </Row>
 
-        {/* Primera fila (4 productos) */}
         <Row className="g-4 mb-4">
           {primeraFila.map((producto) => (
             <Col key={String(producto.id ?? producto.nombre)} sm={6} md={3}>
@@ -367,7 +302,11 @@ export default function HomePage() {
                     </Badge>
                   ) : null}
                   <ProductImage
-                    src={safeSrc(producto.imagen)}
+                    src={safeSrc(
+                      producto.assets && producto.assets.length
+                        ? producto.assets[0]
+                        : producto.imagen
+                    )}
                     alt={producto.nombre}
                     style={{
                       height: "150px",
@@ -439,7 +378,6 @@ export default function HomePage() {
           ))}
         </Row>
 
-        {/* Segunda fila (otra fila debajo con 4 productos) */}
         <Row className="g-4">
           {segundaFila.map((producto) => (
             <Col key={String(producto.id ?? producto.nombre)} sm={6} md={3}>
@@ -467,7 +405,11 @@ export default function HomePage() {
                     </Badge>
                   ) : null}
                   <ProductImage
-                    src={safeSrc(producto.imagen)}
+                    src={safeSrc(
+                      producto.assets && producto.assets.length
+                        ? producto.assets[0]
+                        : producto.imagen
+                    )}
                     alt={producto.nombre}
                     style={{
                       height: "150px",

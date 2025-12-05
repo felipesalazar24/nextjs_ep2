@@ -23,7 +23,6 @@ const STORAGE_KEY = "admin_producto_uploaded_draft";
 
 /**
  * Función auxiliar para determinar si el usuario es admin.
- * Se adapta a distintos shapes del objeto user (rol, role, isAdmin, admin, roles array).
  */
 function userIsAdmin(user) {
   if (!user) return false;
@@ -71,7 +70,6 @@ export default function CrearProductoPage() {
     miniaturas: [],
   });
 
-  // Persistencia en localStorage
   const loadSavedUploads = () => {
     try {
       if (typeof window === "undefined") return null;
@@ -110,7 +108,6 @@ export default function CrearProductoPage() {
     }
   };
 
-  // callback ref + estado para detectar el nodo del drop area de forma robusta
   const dropNodeRef = useRef(null);
   const [dropNode, setDropNode] = useState(null);
   const setDropNodeCallback = useCallback((node) => {
@@ -130,11 +127,8 @@ export default function CrearProductoPage() {
 
   const [manualOpen, setManualOpen] = useState(false);
 
-  // ---------- AUTH HOOKS: MUST BE DECLARED BEFORE ANY EARLY RETURNS ----------
-  // compute isAdmin unconditionally (hook order stable)
   const isAdmin = useMemo(() => userIsAdmin(auth.user), [auth.user]);
 
-  // schedule redirect if user is explicitly null (with a short delay to avoid false redirects while auth hydrates)
   useEffect(() => {
     let t;
     if (auth.user === null) {
@@ -144,9 +138,7 @@ export default function CrearProductoPage() {
       if (t) clearTimeout(t);
     };
   }, [auth.user, router]);
-  // ------------------------------------------------------------------------
 
-  // Al montar: cargar estado guardado (si existe)
   useEffect(() => {
     const saved = loadSavedUploads();
     if (saved) {
@@ -208,7 +200,6 @@ export default function CrearProductoPage() {
     setCatsOpen(false);
   };
 
-  // ----- Drag & Drop handlers: attach when dropNode changes (robusto) -----
   useEffect(() => {
     const node = dropNode;
     if (!node) return;
@@ -281,6 +272,16 @@ export default function CrearProductoPage() {
       reader.readAsDataURL(file);
     });
 
+  /**
+   * Nota:
+   * - En el diseño anterior se usaba /api/upload para subir archivos al servidor Next.
+   * - Si mantienes /api/upload removiéndolo del proyecto romperá esto.
+   * - Si prefieres que las imágenes se envíen directamente al backend remoto, habría
+   *   que adaptar aquí la URL de subida (ej. https://backend.../upload) y el backend
+   *   remoto debe aceptar base64 o multipart/form-data.
+   *
+   * Por ahora conservamos la misma lógica cliente que hacía POST a /api/upload.
+   */
   const uploadFiles = async (files) => {
     try {
       setIsLoading(true);
@@ -317,12 +318,10 @@ export default function CrearProductoPage() {
           return;
         }
 
-        // USAR EXACTAMENTE lo que devuelve el servidor (no agregar ni quitar extensiones)
         setUploaded((prev) => {
           const newMiniSet = new Set([...(prev.miniaturas || []), ...returned]);
           const newMini = Array.from(newMiniSet);
           const newImagen = prev.imagen || returned[0];
-          // Asegurarnos de que la imagen principal no aparezca duplicada en miniaturas
           const finalMini = newMini.filter((x) => x !== newImagen);
           return { imagen: newImagen, miniaturas: finalMini };
         });
@@ -391,7 +390,7 @@ export default function CrearProductoPage() {
         body: JSON.stringify(payload),
       });
 
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (!res.ok) {
         setServerError(data.error || "Error al crear el producto");
         setIsLoading(false);
@@ -450,7 +449,6 @@ export default function CrearProductoPage() {
         newImagen = null;
         setForm((curr) => ({ ...curr, imagen: "" }));
       }
-      // al actualizar uploaded, useEffect guardará en storage automáticamente
       setIsLoading(false);
       return { ...prev, imagen: newImagen, miniaturas: arr };
     });
@@ -495,7 +493,6 @@ export default function CrearProductoPage() {
       const arr = prev.miniaturas.filter((x) => x !== url);
       setForm((curr) => ({ ...curr, imagen: "", miniaturasList: arr }));
       setIsLoading(false);
-      // limpiar storage si ya no hay miniaturas ni imagen
       if (arr.length === 0) clearUploadsFromStorage();
       return { imagen: null, miniaturas: arr };
     });
@@ -532,7 +529,6 @@ export default function CrearProductoPage() {
     }));
   };
 
-  // --- AUTH-BASED RENDERING / EARLY RETURNS (hooks above ensure stable order) ---
   if (auth.hydrated === false) {
     return (
       <Container className="py-5 text-center">
@@ -544,7 +540,6 @@ export default function CrearProductoPage() {
     );
   }
 
-  // If auth.user === null show transient message while redirect scheduled by useEffect
   if (auth.user === null) {
     return (
       <Container className="py-5 text-center">
@@ -555,7 +550,6 @@ export default function CrearProductoPage() {
     );
   }
 
-  // If user exists but is not admin show access denied (link to home)
   if (auth.user && !isAdmin) {
     return (
       <Container className="py-5">
@@ -572,7 +566,6 @@ export default function CrearProductoPage() {
       </Container>
     );
   }
-  // --- END AUTH GUARD ---
 
   return (
     <Container className="py-5">
@@ -863,7 +856,6 @@ export default function CrearProductoPage() {
                       <Form.Group className="mb-3">
                         <Form.Label>Imagen principal</Form.Label>
 
-                        {/* READ-ONLY: mostrar la ruta en plaintext sin input ni reset */}
                         <div
                           className="form-control-plaintext p-2"
                           style={{
@@ -892,7 +884,6 @@ export default function CrearProductoPage() {
                       <Form.Group className="mb-3">
                         <Form.Label>Miniaturas</Form.Label>
 
-                        {/* READ-ONLY: mostrar miniaturas como lista de plaintext (sin inputs ni reset) */}
                         {Array.isArray(form.miniaturasList) &&
                         form.miniaturasList.length > 0 ? (
                           form.miniaturasList.map((m, idx) => (
