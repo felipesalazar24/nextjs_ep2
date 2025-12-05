@@ -53,11 +53,17 @@ export async function GET(req: Request) {
     // Query param overrides
     if (params.has("id")) {
       const id = params.get("id");
+      if (!id) {
+        return jsonResponse({ error: "Invalid id" }, 400);
+      }
       const result = await forwardFetch(`${API_PREFIX}/${encodeURIComponent(id)}`);
       return jsonResponse(result.data, result.status);
     }
     if (params.has("usuarioId")) {
       const usuarioId = params.get("usuarioId");
+      if (!usuarioId) {
+        return jsonResponse({ error: "Invalid usuarioId" }, 400);
+      }
       const result = await forwardFetch(
         `${API_PREFIX}/usuario/${encodeURIComponent(usuarioId)}`
       );
