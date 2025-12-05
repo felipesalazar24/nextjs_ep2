@@ -31,12 +31,11 @@ export async function PUT(req, { params }) {
         { status: 404 }
       );
     return NextResponse.json(updated);
-  } catch (e) {
+  } catch {
     console.error("PUT /api/usuarios/[id] error:", e);
     return NextResponse.json(
       {
         error: "Error al actualizar usuario",
-        details: String(e?.message || e),
       },
       { status: 500 }
     );

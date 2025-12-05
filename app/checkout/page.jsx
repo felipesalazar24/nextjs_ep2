@@ -606,8 +606,8 @@ export default function CheckoutPage() {
         createdAt: new Date().toISOString(),
       };
 
-      const ok = Math.random() < 0.5;
 
+      
       if (ok) {
         // Persist sale to server-side JSON (/api/sales)
         try {
