@@ -22,7 +22,7 @@ async function proxyFetch(path: string, options: RequestInit = {}) {
     const text = await res.text();
     try {
       data = text ? JSON.parse(text) : null;
-    } catch (e) {
+    } catch {
       data = text;
     }
 
@@ -64,11 +64,17 @@ export async function GET(request: Request) {
           { status: 502 }
         );
 
-      const found = data.find(
-        (u: any) =>
-          String(u.email).toLowerCase() === String(email).toLowerCase() &&
-          String(u.contrasenia) === String(contrasenia)
-      );
+      // We avoid explicit any: treat each item as unknown and narrow to an object with fields.
+      const found = (data as unknown[]).find((u) => {
+        const obj = u as Record<string, unknown>;
+        const ue = obj.email ?? "";
+        const uc = obj.contrasenia ?? obj.password ?? "";
+        return (
+          String(ue).toLowerCase() === String(email).toLowerCase() &&
+          String(uc) === String(contrasenia)
+        );
+      });
+
       if (!found)
         return NextResponse.json(
           { message: "Invalid credentials" },

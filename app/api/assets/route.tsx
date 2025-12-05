@@ -6,12 +6,10 @@ import { NextResponse } from "next/server";
  * Cambios principales:
  * - generateCategoryVariants ahora prioriza variantes en minúscula y añade la forma plural
  *   (agrega 's' cuando no termina en 's') para mejorar coincidencia con carpetas como "mouses".
- * - Mantiene las demás características: múltiples baseDirs, patrones file/folder,
- *   candidatos codificados/no codificados, verify=false por defecto.
+ * - Eliminada la función buildPatterns que estaba definida pero nunca usada.
  *
  * Instrucciones:
  * - Sustituye este archivo y reinicia next dev.
- * - Vuelve a probar la petición /api/assets?nombre=...&categoria=...
  */
 
 type MaybeString = string | null;
@@ -128,11 +126,6 @@ function buildUrl(
   const folderPattern = `${base}/${catToInsert}/${nameToInsert}/${nameToInsert}(${i}).${ext}`;
 
   return { fileDirect, folderPattern };
-}
-
-function buildPatterns(basePattern: string) {
-  // Aquí basePattern no se usa: usamos RAW_BASE + baseDir, y patrones file/folder se crean en buildUrl.
-  return [basePattern];
 }
 
 async function urlExists(url: string): Promise<boolean> {

@@ -265,7 +265,7 @@ export async function getProductImages(
     return Array.isArray(result) && result.length
       ? result.slice(0, max)
       : [LOCAL_PLACEHOLDER];
-  } catch (err) {
+  } catch {
     CACHE.set(productKey, {
       images: [LOCAL_PLACEHOLDER],
       ts: Date.now(),

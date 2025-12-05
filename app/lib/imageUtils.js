@@ -4,9 +4,6 @@
 //   Si HEAD no ok o falla, intenta cargar con Image() (onload/onerror) y devuelve true/false.
 // - No lee el body de respuestas cross-origin.
 //
-// Uso:
-// import { tryHeadThenImage } from './imageUtils';
-// const ok = await tryHeadThenImage(url, 2000);
 
 export async function tryHeadThenImage(url, timeoutMs = 3000) {
   if (!url) return false;
@@ -26,7 +23,7 @@ export async function tryHeadThenImage(url, timeoutMs = 3000) {
       // otherwise fallthrough to Image() attempt (some servers return empty content-type)
     }
     // If HEAD returns non-ok, continue to Image() attempt — some servers don't handle HEAD.
-  } catch (e) {
+  } catch {
     // HEAD can fail due to CORS or network — silently fall back to Image()
   }
 
@@ -59,7 +56,7 @@ export async function tryHeadThenImage(url, timeoutMs = 3000) {
     try {
       // Append tiny cache-buster to avoid being satisfied by stale caches during debug; harmless otherwise.
       img.src = u;
-    } catch (e) {
+    } catch {
       if (!done) {
         done = true;
         clearTimeout(timer);
