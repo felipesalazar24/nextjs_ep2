@@ -65,6 +65,17 @@ const getOfferForProduct = (product) => {
   return { oldPrice: oldPrice || null, price, percent: percent || 0 };
 };
 
+// --- added minimal constants for category images (no layout changes) ---
+const CATEGORY_PLACEHOLDER = "/assets/category/default.png"; // ensure this exists in public/assets/category
+
+// helper to build default filename: Mouse.png, Teclado.png, Audifono.png, Monitor.png
+function defaultCategoryFilename(key) {
+  if (!key) return `${key}.png`;
+  const k = String(key);
+  return `${k.charAt(0).toUpperCase()}${k.slice(1)}.png`;
+}
+// ---------------------------------------------------------------------
+
 export default function CategoriaPage() {
   const params = useParams();
   const tipoCategoria = params?.tipo ?? "";
@@ -325,10 +336,20 @@ export default function CategoriaPage() {
         <Row className="g-4">
           {categoriasParaMostrar.map((cat) => {
             const stat = categoriaStats[cat.key] || { count: 0, image: null };
-            const imgSrc =
-              stat.image ||
-              `/assets/category/${cat.key}.png` ||
-              "https://via.placeholder.com/400x300?text=Categoria";
+
+            // --- REPLACED: only this img logic changed to use public/assets/category ---
+            let imgSrc = CATEGORY_PLACEHOLDER;
+            if (stat.image) {
+              const s = String(stat.image || "").trim();
+              if (!s) imgSrc = CATEGORY_PLACEHOLDER;
+              else if (s.startsWith("/") || /^https?:\/\//i.test(s)) imgSrc = s;
+              else imgSrc = `/assets/category/${s}`;
+            } else {
+              const filename = defaultCategoryFilename(cat.key); // e.g. Mouse.png
+              imgSrc = `/assets/category/${filename}`;
+            }
+            // ---------------------------------------------------------------------
+
             const btnVariant = cat.btnVariant || "secondary";
 
             return (
@@ -345,8 +366,21 @@ export default function CategoriaPage() {
                         background: "#fff",
                       }}
                       onError={(e) => {
-                        e.target.src =
-                          "https://via.placeholder.com/400x300/ffffff/cccccc?text=Imagen+Categoría";
+                        // robust onError: set fallback once and remove handler to prevent infinite retries
+                        const img = e.currentTarget;
+                        try {
+                          if (img.dataset.fallback !== "1") {
+                            img.dataset.fallback = "1";
+                            img.onerror = null;
+                            img.src = CATEGORY_PLACEHOLDER;
+                          } else {
+                            img.onerror = null;
+                          }
+                        } catch {
+                          try {
+                            img.onerror = null;
+                          } catch {}
+                        }
                       }}
                     />
                     <Badge

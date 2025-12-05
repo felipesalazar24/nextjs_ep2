@@ -1,85 +1,54 @@
 "use client";
 
-import React, { useMemo, useEffect, useState } from "react";
+import React from "react";
 import { Container, Row, Col, Card, Button } from "react-bootstrap";
 import Link from "next/link";
 
-/*
-  Ahora esta página obtiene los productos desde /api/productos para calcular los contadores
-  por categoría en lugar de leer datos locales.
-*/
+/**
+ * Categories index (fixed images in public/assets/category)
+ *
+ * - Robust onError to avoid infinite image retry loops.
+ * - Restored the bottom "¿No encuentras lo que buscas?" banner with buttons.
+ */
 
 const CATEGORIES = [
   {
     key: "mouse",
     title: "Mouse Gaming",
-    description: "Precisión y velocidad para gamers profesionales",
+    description: "Precisión y velocidad",
     btnVariant: "primary",
   },
   {
     key: "teclado",
     title: "Teclados Mecánicos",
-    description: "Respuesta táctil y durabilidad excepcional",
+    description: "Respuesta táctil y durabilidad",
     btnVariant: "success",
   },
   {
     key: "audifono",
     title: "Audífonos Gaming",
-    description: "Sonido envolvente y comodidad para largas sesiones",
+    description: "Sonido envolvente y comodidad",
     btnVariant: "warning",
   },
   {
     key: "monitor",
     title: "Monitores Gaming",
-    description: "Alta tasa de refresco y colores vibrantes",
+    description: "Alta tasa de refresco y colores",
     btnVariant: "dark",
   },
 ];
 
-export default function CategoriasIndexPage() {
-  const [productos, setProductos] = useState([]);
+// Map category key -> filename in public/assets/category/
+const IMAGE_MAP = {
+  mouse: "Mouse.png",
+  teclado: "Teclado.png",
+  audifono: "Audifono.png",
+  monitor: "Monitor.png",
+};
 
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      try {
-        const res = await fetch("/api/productos");
-        if (!res.ok) {
-          const j = await res.json().catch(() => ({}));
-          console.warn("Error fetching products:", j);
-          if (!mounted) return;
-          setProductos([]);
-          return;
-        }
-        const data = await res.json().catch(() => []);
-        if (!mounted) return;
-        setProductos(Array.isArray(data) ? data : []);
-      } catch (err) {
-        console.warn("Error loading products:", err);
-        if (mounted) setProductos([]);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
+const PLACEHOLDER = "/assets/category/default.png"; // <-- ensure this file exists in public/assets/category/
 
-  // calcular conteo e imagen representativa por categoría
-  const stats = useMemo(() => {
-    const map = {};
-    // inicializar keys con 0
-    for (const c of CATEGORIES) {
-      map[c.key] = { count: 0, image: null };
-    }
-    for (const p of productos) {
-      const key = String(p.atributo || p.categoria || "").toLowerCase();
-      if (!map[key]) continue;
-      map[key].count += 1;
-      if (!map[key].image && p.imagen) map[key].image = p.imagen;
-    }
-    return map;
-  }, [productos]);
-
+export default function CategoriaIndexPage() {
   return (
     <Container className="py-4">
       <div className="text-center mb-4">
@@ -89,48 +58,44 @@ export default function CategoriasIndexPage() {
 
       <Row className="g-4">
         {CATEGORIES.map((cat) => {
-          const stat = stats[cat.key] || { count: 0, image: null };
-          const imgSrc =
-            stat.image ||
-            `/assets/category/${cat.key}.png` ||
-            "https://via.placeholder.com/400x300?text=Categoria";
-          const countLabel = `${stat.count} producto${
-            stat.count === 1 ? "" : "s"
-          }`;
+          const filename = IMAGE_MAP[cat.key] || null;
+          const imgSrc = filename
+            ? `/assets/category/${filename}`
+            : PLACEHOLDER;
 
           return (
             <Col key={cat.key} md={6} lg={3}>
               <Card className="h-100 shadow-sm">
-                <div style={{ position: "relative" }}>
-                  <Card.Img
-                    variant="top"
+                <div
+                  style={{
+                    position: "relative",
+                    overflow: "hidden",
+                    background: "#fff",
+                  }}
+                >
+                  <img
                     src={imgSrc}
-                    style={{
-                      height: 240,
-                      objectFit: "contain",
-                      padding: 20,
-                      background: "#fff",
-                    }}
+                    alt={cat.title}
+                    style={{ width: "100%", height: 240, objectFit: "cover" }}
                     onError={(e) => {
-                      e.target.src =
-                        "https://via.placeholder.com/400x300/ffffff/cccccc?text=Imagen+Categoría";
+                      // Robust onError: set fallback once and remove handler to avoid infinite retries.
+                      const img = e.currentTarget;
+                      try {
+                        if (img.dataset.fallback !== "1") {
+                          img.dataset.fallback = "1";
+                          img.onerror = null; // stop further onerror events for this element
+                          img.src = PLACEHOLDER;
+                        } else {
+                          // already tried fallback; disable further handling
+                          img.onerror = null;
+                        }
+                      } catch {
+                        try {
+                          img.onerror = null;
+                        } catch {}
+                      }
                     }}
                   />
-                  <div
-                    style={{
-                      position: "absolute",
-                      top: 12,
-                      left: 12,
-                      zIndex: 5,
-                      background: "#0d6efd",
-                      color: "#fff",
-                      padding: "6px 10px",
-                      borderRadius: 999,
-                      fontSize: 12,
-                    }}
-                  >
-                    {countLabel}
-                  </div>
                 </div>
 
                 <Card.Body className="d-flex flex-column">
@@ -141,7 +106,7 @@ export default function CategoriasIndexPage() {
 
                   <div className="mt-auto d-grid">
                     <Link
-                      href={`/categoria/${String(cat.key).toLowerCase()}`}
+                      href={`/categoria/${encodeURIComponent(cat.key)}`}
                       className={`btn btn-${cat.btnVariant}`}
                     >
                       Explorar Categoría
@@ -154,7 +119,7 @@ export default function CategoriasIndexPage() {
         })}
       </Row>
 
-      {/* Información adicional */}
+      {/* Información adicional — restaurada */}
       <Row className="mt-5">
         <Col className="text-center">
           <div className="bg-light rounded p-4">
