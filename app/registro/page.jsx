@@ -1,4 +1,3 @@
-// app/registro/page.jsx
 "use client";
 
 import {
@@ -12,10 +11,9 @@ import {
 } from "react-bootstrap";
 import Link from "next/link";
 import { useState } from "react";
-import { useAuth } from "../context/AuthContext";
 import { useRouter } from "next/navigation";
 
-// Diccionario de comunas por región
+// Diccionario de comunas por región (sin cambios)
 const comunasPorRegion = {
   "Arica y Parinacota": ["Arica", "Camarones", "Putre", "General Lagos"],
   Tarapacá: [
@@ -358,7 +356,6 @@ const comunasPorRegion = {
 };
 
 export default function RegistroPage() {
-  const { register } = useAuth();
   const router = useRouter();
 
   const [formData, setFormData] = useState({
@@ -374,6 +371,7 @@ export default function RegistroPage() {
   const [errors, setErrors] = useState({});
   const [showAlert, setShowAlert] = useState(false);
   const [comunas, setComunas] = useState([]);
+  const [submitting, setSubmitting] = useState(false);
 
   // Validaciones
   const validarEmail = (email) => {
@@ -466,23 +464,48 @@ export default function RegistroPage() {
       return;
     }
 
-    // Intentar registro (ahora await para usar el endpoint JSON)
-    const result = await register({
+    // Preparar payload para el backend: backend espera 'contrasenia'
+    const payload = {
       nombre: formData.nombre,
       email: formData.email,
-      password: formData.password,
-      telefono: formData.telefono,
+      contrasenia: formData.password,
+      telefono: formData.telefono
+        ? String(formData.telefono).replace(/\s+/g, "")
+        : "0",
       region: formData.region,
       comuna: formData.comuna,
-    });
+      // fechaCreacion y rol serán gestionados por la API unificada si falta
+    };
 
-    if (result.success) {
+    setSubmitting(true);
+    try {
+      const res = await fetch("/api/usuario", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+
+      if (!res.ok) {
+        // Intentar extraer mensaje de error
+        const data = await res.json().catch(() => null);
+        const msg =
+          (data && (data.message || data.error)) ||
+          `Error al registrar (${res.status})`;
+        setErrors({ general: msg });
+        setSubmitting(false);
+        return;
+      }
+
+      // Registro exitoso
       setShowAlert(true);
       setTimeout(() => {
         router.push("/login");
-      }, 2000);
-    } else {
-      setErrors({ general: result.message });
+      }, 1500);
+    } catch (err) {
+      console.error(err);
+      setErrors({ general: "Error de red al intentar registrarse." });
+    } finally {
+      setSubmitting(false);
     }
   };
 
@@ -641,8 +664,13 @@ export default function RegistroPage() {
                 </Row>
 
                 <div className="d-grid gap-2">
-                  <Button variant="primary" type="submit" size="lg">
-                    Crear Cuenta
+                  <Button
+                    variant="primary"
+                    type="submit"
+                    size="lg"
+                    disabled={submitting}
+                  >
+                    {submitting ? "Creando cuenta..." : "Crear Cuenta"}
                   </Button>
                 </div>
               </Form>

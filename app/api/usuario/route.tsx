@@ -17,7 +17,7 @@ async function proxyFetch(path: string, options: RequestInit = {}) {
       ...options,
     });
 
-    // Try to parse JSON, but fallback if no body.
+    // Try to parse JSON, but fallback to text if no JSON
     let data = null;
     const text = await res.text();
     try {
@@ -38,9 +38,6 @@ async function proxyFetch(path: string, options: RequestInit = {}) {
 
 /**
  * GET handler
- * - GET /api/usuario -> list all users (proxied to backend GET /api/v1/usuarios)
- * - GET /api/usuario?id=123 -> get user by id (proxied to backend GET /api/v1/usuarios/id/{id})
- * - GET /api/usuario?email=...&contrasenia=... -> "login" style lookup: fetch all and match email+contrasenia
  */
 export async function GET(request: Request) {
   const url = new URL(request.url);
@@ -50,7 +47,6 @@ export async function GET(request: Request) {
 
   try {
     if (id) {
-      // GET by id
       const { ok, status, data } = await proxyFetch(
         `/api/v1/usuarios/id/${encodeURIComponent(id)}`
       );
@@ -59,7 +55,7 @@ export async function GET(request: Request) {
     }
 
     if (email && contrasenia) {
-      // No dedicated login endpoint on the backend: fetch all users and find the match.
+      // no dedicated login endpoint: fetch all users and match
       const { ok, status, data } = await proxyFetch(`/api/v1/usuarios`);
       if (!ok) return NextResponse.json({ error: data }, { status });
       if (!Array.isArray(data))
@@ -81,12 +77,8 @@ export async function GET(request: Request) {
       return NextResponse.json(found, { status: 200 });
     }
 
-    // List all users
     const { ok, status, data } = await proxyFetch(`/api/v1/usuarios`);
-    if (!ok) {
-      // If backend returned no content (204) or other non-ok, forward that status.
-      return NextResponse.json({ error: data }, { status });
-    }
+    if (!ok) return NextResponse.json({ error: data }, { status });
     return NextResponse.json(data, { status });
   } catch (error) {
     return NextResponse.json(
@@ -98,18 +90,11 @@ export async function GET(request: Request) {
 
 /**
  * POST -> create a new user
- * For robustness we apply a few defaults similarly to original frontend logic:
- * - if telefono missing or <= 0 -> set 0
- * - if fechaCreacion missing -> set today (YYYY-MM-DD)
- * - if rol missing -> 'cliente'
- *
- * Proxies to backend POST /api/v1/usuarios
  */
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) || {};
 
-    // Basic normalization / defaults before sending to backend
     if (!body.telefono || Number(body.telefono) <= 0) body.telefono = 0;
     if (!body.fechaCreacion) {
       body.fechaCreacion = new Date().toISOString().split("T")[0]; // YYYY-MM-DD
@@ -133,8 +118,6 @@ export async function POST(request: Request) {
 
 /**
  * PUT -> update a user
- * Expects an 'id' query param (preferred) or body.id
- * Proxies to backend PUT /api/v1/usuarios/actualizar/{id}
  */
 export async function PUT(request: Request) {
   try {
@@ -150,7 +133,6 @@ export async function PUT(request: Request) {
       );
     }
 
-    // send update to backend
     const { ok, status, data } = await proxyFetch(
       `/api/v1/usuarios/actualizar/${encodeURIComponent(id)}`,
       {
@@ -171,8 +153,7 @@ export async function PUT(request: Request) {
 
 /**
  * DELETE -> delete a user by id
- * Expects query param 'id'
- * Proxies to backend DELETE /api/v1/usuarios/id/{id}
+ * Important: backend may return 204 No Content. NextResponse.json must NOT be used with 204.
  */
 export async function DELETE(request: Request) {
   try {
@@ -193,8 +174,16 @@ export async function DELETE(request: Request) {
       }
     );
 
-    if (!ok) return NextResponse.json({ error: data }, { status });
-    // backend likely returns 204 No Content; forward that status.
+    // If backend returned 204 No Content -> return an empty NextResponse with 204 status
+    if (status === 204) {
+      return new NextResponse(null, { status: 204 });
+    }
+
+    // For other statuses, forward appropriately
+    if (!ok) {
+      return NextResponse.json({ error: data }, { status });
+    }
+
     return NextResponse.json(data ?? { message: "Deleted" }, { status });
   } catch (error) {
     return NextResponse.json(
@@ -205,7 +194,7 @@ export async function DELETE(request: Request) {
 }
 
 /**
- * OPTIONS -> respond to preflight CORS checks (useful when calling from browser)
+ * OPTIONS -> respond to preflight CORS checks
  */
 export async function OPTIONS() {
   return new NextResponse(null, {

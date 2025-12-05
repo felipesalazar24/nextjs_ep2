@@ -15,7 +15,7 @@ import { useAuth } from "../context/AuthContext";
 import { useRouter } from "next/navigation";
 
 export default function LoginPage() {
-  const { login } = useAuth();
+  const auth = useAuth();
   const router = useRouter();
 
   const [formData, setFormData] = useState({
@@ -60,21 +60,73 @@ export default function LoginPage() {
       return;
     }
 
-    // Intentar login (ahora await para usar el endpoint JSON)
-    const result = await login(formData.email, formData.password);
+    try {
+      // Llamada a la nueva API unificada para login (busca por email + contrasenia)
+      const params = new URLSearchParams({
+        email: formData.email,
+        contrasenia: formData.password,
+      });
+      const res = await fetch(`/api/usuario?${params.toString()}`, {
+        method: "GET",
+        headers: { "Content-Type": "application/json" },
+      });
 
-    if (result.success) {
-      if (result.isAdmin) {
-        alert(`¡Bienvenido administrador ${formData.email}!`);
+      const data = await res.json().catch(() => null);
+
+      if (!res.ok) {
+        const msg =
+          (data && (data.message || data.error)) || "Credenciales inválidas";
+        setErrors({ general: msg });
+        setIsLoading(false);
+        return;
+      }
+
+      // backend proxy will return the user object on success
+      const user = data;
+
+      if (!user || !user.email) {
+        setErrors({
+          general: "Usuario no encontrado o credenciales incorrectas.",
+        });
+        setIsLoading(false);
+        return;
+      }
+
+      // Try to sync with AuthContext if it exposes a setter
+      // (defensive: we don't know exact shape of AuthContext)
+      try {
+        if (auth) {
+          if (typeof auth.setUser === "function") {
+            auth.setUser(user);
+          } else if (typeof auth.login === "function") {
+            // fallback: call login() if available (may trigger its own requests)
+            await auth.login(formData.email, formData.password);
+          }
+        }
+      } catch (err) {
+        // ignore sync errors, proceed with redirect
+        console.warn("No se pudo sincronizar con AuthContext:", err);
+      }
+
+      // Informar y redirigir
+      if (
+        user.rol === "admin" ||
+        user.role === "admin" ||
+        user.isAdmin === true ||
+        (Array.isArray(user.roles) && user.roles.includes("admin"))
+      ) {
+        alert(`¡Bienvenido administrador ${user.email}!`);
       } else {
         alert("¡Inicio de sesión exitoso!");
       }
-      router.push("/");
-    } else {
-      setErrors({ general: result.message });
-    }
 
-    setIsLoading(false);
+      router.push("/");
+    } catch (err) {
+      console.error(err);
+      setErrors({ general: "Error de red al intentar iniciar sesión." });
+    } finally {
+      setIsLoading(false);
+    }
   };
 
   return (
@@ -149,18 +201,6 @@ export default function LoginPage() {
                     Regístrate aquí
                   </Link>
                 </p>
-              </div>
-
-              {/* Información de administradores (solo para desarrollo) */}
-              <div className="mt-4 p-3 bg-light rounded">
-                <h6 className="small fw-bold mb-2">
-                  👨‍💻 Accesos de Administrador:
-                </h6>
-                <div className="small text-muted">
-                  <div>mati.vegaa@duocuc.cl / adminmatias</div>
-                  <div>fe.salazarv@duocuc.cl / adminfelipe</div>
-                  <div>profe@profesor.duoc.cl / profe</div>
-                </div>
               </div>
             </Card.Body>
           </Card>
