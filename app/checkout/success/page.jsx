@@ -10,24 +10,78 @@ import {
   Button,
   Badge,
 } from "react-bootstrap";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter } from "next/navigation";
 
 /**
  * Página de compra exitosa
- * Lee los detalles del último pedido guardado en sessionStorage ('lastOrder')
- * y los muestra. También incluye botones para imprimir o volver al home.
- *
- * Pegar en: app/checkout/success/page.jsx
+ * - Si existe query param ?order=<id> intenta obtener pedido desde /api/ventas/:id
+ * - Si no, usa sessionStorage.lastOrder como fallback (comportamiento previo)
+ * - Normaliza la estructura del pedido para mostrarlo independientemente de la forma del backend
  */
+
+function normalizeOrder(raw) {
+  // raw puede venir con distintas formas; intentamos normalizar a:
+  // { id, customer: { nombre, email, telefono, calle, depto, comuna, region }, items: [{ id, nombre, imagen, precio, cantidad, subtotal }], total, fecha, direccion }
+  if (!raw) return null;
+  // Si ya tiene items
+  if (Array.isArray(raw.items) && raw.items.length >= 0) {
+    return {
+      id: raw.id ?? raw.codigo ?? raw.orderId,
+      customer: raw.customer ?? raw.cliente ?? raw.usuario ?? {},
+      items: raw.items.map((it, idx) => ({
+        id: it.id ?? it.productoId ?? idx,
+        nombre: it.nombre ?? it.title ?? `Producto ${it.id ?? it.productoId ?? idx}`,
+        imagen: it.imagen ?? it.image ?? null,
+        precio: Number(it.precio ?? it.precio_unitario ?? it.precioUnitario ?? 0),
+        cantidad: Number(it.cantidad ?? it.quantity ?? 1),
+        subtotal: Number(it.subtotal ?? (it.precio ? it.precio * (it.cantidad || 1) : (it.precio_unitario || it.precioUnitario || 0) * (it.cantidad || 1))),
+      })),
+      total: Number(raw.total ?? raw.amount ?? 0),
+      fecha: raw.fecha ?? raw.date ?? null,
+      direccion: raw.direccion ?? null,
+    };
+  }
+
+  // Si tiene 'detalles' (estructura del backend Java)
+  if (Array.isArray(raw.detalles)) {
+    const items = raw.detalles.map((d, idx) => ({
+      id: d.productoId ?? idx,
+      nombre: d.nombre ?? `Producto ${d.productoId ?? idx}`,
+      imagen: d.imagen ?? null,
+      precio: Number(d.precioUnitario ?? d.precio_unitario ?? 0),
+      cantidad: Number(d.cantidad ?? 1),
+      subtotal: Number(d.subtotal ?? (d.precioUnitario || d.precio_unitario || 0) * (d.cantidad || 1)),
+    }));
+    return {
+      id: raw.id,
+      customer: raw.cliente ?? raw.customer ?? {},
+      items,
+      total: Number(raw.total ?? 0),
+      fecha: raw.fecha ?? null,
+      direccion: raw.direccion ?? null,
+    };
+  }
+
+  // fallback: return raw minimally wrapped
+  return {
+    id: raw.id ?? raw.orderId,
+    customer: raw.customer ?? {},
+    items: Array.isArray(raw.items) ? raw.items : [],
+    total: Number(raw.total ?? 0),
+    fecha: raw.fecha ?? null,
+    direccion: raw.direccion ?? null,
+  };
+}
 
 export default function CheckoutSuccessPage() {
   const router = useRouter();
 
-  // estado
   const [orderIdParam, setOrderIdParam] = useState(null);
   const [order, setOrder] = useState(null);
   const [offersMap, setOffersMap] = useState(new Map());
   const [offersLoading, setOffersLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [fetchError, setFetchError] = useState(null);
 
   // Leer la query 'order' desde window.location.search (solo en cliente)
   useEffect(() => {
@@ -42,15 +96,49 @@ export default function CheckoutSuccessPage() {
     }
   }, []);
 
-  // Cargar el último pedido desde sessionStorage (cliente)
+  // Si viene orderIdParam, solicitamos al backend el pedido vía la nueva API /api/ventas/:id
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      if (!orderIdParam) return;
+      setLoading(true);
+      setFetchError(null);
+      try {
+        const base = process?.env?.NEXT_PUBLIC_BASE_URL ?? "";
+        const res = await fetch(`${base}/api/ventas/${encodeURIComponent(orderIdParam)}`, {
+          headers: { "Accept": "application/json" },
+        });
+        if (!mounted) return;
+        if (!res.ok) {
+          const txt = await res.text().catch(() => "");
+          setFetchError(`Error ${res.status}: ${txt}`);
+          setOrder(null);
+          return;
+        }
+        const data = await res.json().catch(() => null);
+        const normalized = normalizeOrder(data);
+        setOrder(normalized);
+      } catch (err) {
+        console.warn("Error fetching order by id:", err);
+        if (!mounted) return;
+        setFetchError("Error al obtener información del pedido");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+    return () => (mounted = false);
+  }, [orderIdParam]);
+
+  // Cargar el último pedido desde sessionStorage (cliente) si no vino por query param
   useEffect(() => {
     try {
       if (typeof window !== "undefined") {
         const raw = sessionStorage.getItem("lastOrder");
         if (raw) {
           const parsed = JSON.parse(raw);
-          // si orderIdParam viene, podrías validar coincidencia; por ahora mostramos lo almacenado
-          setOrder(parsed);
+          const normalized = normalizeOrder(parsed);
+          // Solo setear si no hay order traído por query param
+          setOrder((prev) => prev ?? normalized);
         }
       }
     } catch (err) {
@@ -58,15 +146,21 @@ export default function CheckoutSuccessPage() {
     }
   }, [orderIdParam]);
 
-  // Cargar ofertas (cliente)
+  // Cargar ofertas (cliente) - mantiene comportamiento previo
   useEffect(() => {
     let mounted = true;
     (async () => {
       setOffersLoading(true);
       try {
-        const { offersMap: om } = await loadOffers();
-        if (!mounted) return;
-        setOffersMap(om);
+        // loadOffers puede existir en otras utilidades del repo; si no, simplemente setea vacío
+        if (typeof window !== "undefined" && typeof window.loadOffers === "function") {
+          const { offersMap: om } = await window.loadOffers();
+          if (!mounted) return;
+          setOffersMap(om);
+        } else {
+          // fallback: vacío
+          setOffersMap(new Map());
+        }
       } catch (err) {
         console.warn("Error cargando ofertas:", err);
         if (mounted) setOffersMap(new Map());
@@ -81,10 +175,6 @@ export default function CheckoutSuccessPage() {
 
   const handlePrint = () => {
     if (typeof window !== "undefined") window.print();
-  };
-
-  const handleHome = () => {
-    router.push("/");
   };
 
   return (
@@ -105,27 +195,30 @@ export default function CheckoutSuccessPage() {
                 </Badge>
               </div>
 
-              {order ? (
+              {loading ? (
+                <div className="text-center py-4">Cargando información del pedido...</div>
+              ) : fetchError ? (
+                <div className="text-center py-4 text-danger">{fetchError}</div>
+              ) : order ? (
                 <>
                   <h6 className="mb-2">Información del cliente</h6>
                   <Row className="mb-3">
                     <Col md={4}>
-                      <strong>Nombre:</strong> {order.customer?.nombre}
+                      <strong>Nombre:</strong> {order.customer?.nombre ?? order.customer?.name ?? "-"}
                     </Col>
                     <Col md={4}>
-                      <strong>Correo:</strong> {order.customer?.email}
+                      <strong>Correo:</strong> {order.customer?.email ?? "-"}
                     </Col>
                     <Col md={4}>
-                      <strong>Teléfono:</strong>{" "}
-                      {order.customer?.telefono || "-"}
+                      <strong>Teléfono:</strong> {order.customer?.telefono ?? "-"}
                     </Col>
                   </Row>
 
                   <h6 className="mb-2">Dirección de entrega</h6>
                   <p className="text-muted mb-3">
-                    {order.customer?.calle}{" "}
+                    {order.direccion ?? order.customer?.calle ?? "-"}{" "}
                     {order.customer?.depto ? `, ${order.customer.depto}` : ""} —{" "}
-                    {order.customer?.comuna}, {order.customer?.region}
+                    {order.customer?.comuna ?? order.customer?.city ?? "-"}, {order.customer?.region ?? "-"}
                   </p>
 
                   <h6 className="mb-2">Productos</h6>
@@ -135,7 +228,6 @@ export default function CheckoutSuccessPage() {
                         <th>Imagen</th>
                         <th>Nombre</th>
                         <th className="text-end">Precio</th>
-                        <th className="text-center">Oferta</th>
                         <th className="text-center">Cantidad</th>
                         <th className="text-end">Subtotal</th>
                       </tr>
@@ -167,8 +259,7 @@ export default function CheckoutSuccessPage() {
                             <td className="text-end">
                               $
                               {(
-                                Number(it.precio || 0) *
-                                  Number(it.cantidad || 0) || 0
+                                Number(it.subtotal ?? (it.precio || 0) * (it.cantidad || 1)) || 0
                               ).toLocaleString("es-CL")}
                             </td>
                           </tr>

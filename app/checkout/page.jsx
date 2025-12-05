@@ -17,9 +17,7 @@ import { useRouter } from "next/navigation";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
 
-/* ---------- Helpers de regiones (omitido aquí por brevedad en este bloque, se mantienen iguales) ---------- */
-/* ... (REGION_COMUNAS map and REGIONS constant) ... */
-/* For brevity in this snippet, the REGION_COMUNAS and REGIONS constants are the same as in your pasted file. */
+/* ---------- Helpers de regiones (mantener como en tu archivo actual) ---------- */
 const REGION_COMUNAS = {
   "Arica y Parinacota": ["Arica", "Camarones", "Putre", "General Lagos"],
   Tarapacá: [
@@ -164,6 +162,7 @@ const REGION_COMUNAS = {
     "Quinta de Tilcoco",
     "Rengo",
     "San Vicente",
+    "Pichilegua",
     "Pichilemu",
     "La Estrella",
     "Litueche",
@@ -363,7 +362,7 @@ const REGION_COMUNAS = {
 const REGIONS = Object.keys(REGION_COMUNAS);
 /* ------------------------------------------------------------------------------------------------------ */
 
-/* ---------- Helpers para ofertas (inline, sin crear archivos) ---------- */
+/* ---------- Helpers para ofertas (inline) ---------- */
 const loadOffers = async () => {
   let serverOffers = [];
   try {
@@ -441,6 +440,7 @@ export default function CheckoutPage() {
     typeof cartContext.clearCart === "function"
       ? cartContext.clearCart
       : () => {};
+  const createOrder = cartContext.createOrder;
 
   // offers state
   const [offersMap, setOffersMap] = useState(new Map());
@@ -521,7 +521,7 @@ export default function CheckoutPage() {
         nombre: user.nombre || prev.nombre || "",
         apellidos: user.apellidos || user.apellido || prev.apellidos || "",
         email: user.email || user.mail || prev.email || "",
-        telefono: user.telefono || prev.telefono || "",
+        telefono: user.telefono || user.telefono || prev.telefono || "",
         calle: user.direccion || user.calle || prev.calle || "",
         depto: user.depto || user.numero || prev.depto || "",
         region: normalizedRegion || prev.region || "",
@@ -590,69 +590,70 @@ export default function CheckoutPage() {
     setIsSubmitting(true);
 
     try {
-      await new Promise((r) => setTimeout(r, 900));
+      // build payload in the shape expected by your backend:
+      // { direccion, usuarioId, total, detalles: [{ productoId, cantidad, precioUnitario, subtotal }, ...] }
+      const direccionFull = `${form.calle}${
+        form.depto ? " #" + form.depto : ""
+      }, ${form.comuna}, ${form.region}`;
+      const usuarioId =
+        user?.id ?? user?.usuarioId ?? user?.userId ?? user?.uid ?? 0;
 
-      const orderId = "ORDER" + String(Date.now()).slice(-8);
-      const orderData = {
-        id: orderId,
-        // use effective total (with offers)
+      // Instead of manually POSTing here, use the context createOrder helper
+      const payloadForCreate = {
+        direccion: direccionFull,
+        usuarioId: Number(usuarioId || 0),
         total: Number(totalEffective || 0),
-        items: cartItems.map((it) => {
-          const offer = getOfferForProduct(offersMap, it);
-          const ef = getEffectivePrice(it, offer);
-          return { ...it, precio: ef.price };
-        }),
-        customer: { ...form },
-        createdAt: new Date().toISOString(),
+        meta: {
+          nombre: form.nombre,
+          email: form.email,
+          telefono: form.telefono,
+          instrucciones: form.instrucciones,
+        },
       };
 
-      const ok = Math.random() < 0.5;
+      // createOrder builds detalles from cart and posts to /api/ventas
+      const created = await createOrder(payloadForCreate);
 
-      if (ok) {
-        // Persist sale to server-side JSON (/api/sales)
-        try {
-          const res = await fetch("/api/sales", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify(orderData),
-          });
+      const createdId =
+        created?.id ?? created?.pedidoId ?? created?.orderId ?? null;
 
-          if (!res.ok) {
-            console.error(
-              "Error saving sale record:",
-              await res.text().catch(() => "")
-            );
-          }
-        } catch (err) {
-          console.error("Fetch /api/sales error:", err);
+      // ensure lastOrder is available (createOrder already writes sessionStorage but keep fallback)
+      try {
+        if (typeof window !== "undefined") {
+          sessionStorage.setItem(
+            "lastOrder",
+            JSON.stringify(created ?? payloadForCreate)
+          );
         }
-
-        try {
-          sessionStorage.setItem("lastOrder", JSON.stringify(orderData));
-        } catch (err) {
-          // ignore
-        }
-
-        try {
-          clearCart();
-        } catch (err) {
-          // ignore
-        }
-
-        router.push(`/checkout/success?order=${orderId}`);
-      } else {
-        try {
-          sessionStorage.setItem("lastFailedOrder", JSON.stringify(orderData));
-        } catch (err) {
-          // ignore
-        }
-        router.push(`/checkout/failed?order=${orderId}`);
+      } catch (err) {
+        // ignore
       }
+
+      // redirect to success using createdId (or empty)
+      router.push(
+        `/checkout/success?order=${encodeURIComponent(createdId ?? "")}`
+      );
     } catch (err) {
+      console.error("Error creating pedido via createOrder:", err);
       setServerMsg({
         type: "danger",
-        text: err?.message || "Error procesando el pago",
+        text: err?.message || "Error procesando el pedido",
       });
+      // optionally store lastFailedOrder for debugging
+      try {
+        if (typeof window !== "undefined") {
+          sessionStorage.setItem(
+            "lastFailedOrder",
+            JSON.stringify({
+              payload: { usuarioId: user?.id },
+              error: err?.message || err,
+            })
+          );
+        }
+      } catch (e) {
+        // ignore
+      }
+    } finally {
       setIsSubmitting(false);
     }
   };
@@ -807,7 +808,7 @@ export default function CheckoutPage() {
                               <td className="text-end">
                                 $
                                 {(
-                                  Number(ef.price || it.precio || 0) * qty
+                                  Number(ef.price || it.precio || 0) * qty || 0
                                 ).toLocaleString("es-CL")}
                               </td>
                             </tr>

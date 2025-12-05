@@ -1,46 +1,54 @@
 "use client";
 
-import React, { useEffect, useState, useMemo, useCallback } from "react";
+import React, { useEffect, useMemo, useCallback, useState } from "react";
 import { Navbar, Nav, Container, Badge, Dropdown } from "react-bootstrap";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
 
-function HeaderComponent() {
+/**
+ * Header sin campo de búsqueda (reemplaza app/components/Header.jsx)
+ * - Mantiene badge del carrito y menú de usuario/admin
+ * - Compatible con AuthContext y CartContext existentes
+ */
+
+export default function HeaderComponent() {
   const pathname = usePathname();
+  const router = useRouter();
   const cart = useCart();
   const auth = useAuth();
 
   const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    setMounted(true);
-  }, []);
+  useEffect(() => setMounted(true), []);
 
-  // snapshot seguro del usuario
   const user = auth?.user ?? null;
-  const logout = typeof auth?.logout === "function" ? auth.logout : () => {};
+  const logout = typeof auth?.logout === "function" ? auth.logout : null;
 
-  // calcular itemsCount sólo en cliente (mounted) y memoizado
+  // Badge count: usar getCount() si existe, fallback a getTotalItems()
   const itemsCount = useMemo(() => {
     if (!mounted) return 0;
     try {
-      if (typeof cart?.getTotalItems === "function") {
+      if (typeof cart?.getCount === "function")
+        return Number(cart.getCount()) || 0;
+      if (typeof cart?.getTotalItems === "function")
         return Number(cart.getTotalItems()) || 0;
-      }
+      return 0;
     } catch (e) {
-      console.error("getTotalItems error", e);
+      console.error("Cart count error", e);
+      return 0;
     }
-    return 0;
-  }, [cart, mounted]);
+  }, [cart, mounted, cart?.items]);
 
-  const handleLogout = useCallback(() => {
+  const handleLogout = useCallback(async () => {
     try {
-      logout();
+      if (logout) await logout();
     } catch (err) {
       console.error("Logout error", err);
+    } finally {
+      router.push("/");
     }
-  }, [logout]);
+  }, [logout, router]);
 
   return (
     <Navbar
@@ -51,85 +59,81 @@ function HeaderComponent() {
       className="custom-navbar"
     >
       <Container>
-        <Navbar.Brand href="/" className="fw-bold brand-logo">
+        <Link href="/" className="navbar-brand fw-bold brand-logo">
           🎮 GameTech
-        </Navbar.Brand>
+        </Link>
 
-        <Navbar.Toggle
-          aria-controls="basic-navbar-nav"
-          className="custom-toggler"
-        />
-        <Navbar.Collapse id="basic-navbar-nav">
+        <Navbar.Toggle aria-controls="main-nav" />
+
+        <Navbar.Collapse id="main-nav">
           <Nav className="me-auto">
-            <Nav.Link
+            <Link
               href="/"
               className={`nav-link-custom ${pathname === "/" ? "active" : ""}`}
             >
               Home
-            </Nav.Link>
-            <Nav.Link
+            </Link>
+            <Link
               href="/productos"
               className={`nav-link-custom ${
                 pathname === "/productos" ? "active" : ""
               }`}
             >
               Productos
-            </Nav.Link>
-            <Nav.Link
+            </Link>
+            <Link
               href="/categoria"
               className={`nav-link-custom ${
-                pathname === "/categoria" || pathname?.includes("/categoria/")
-                  ? "active"
-                  : ""
+                pathname?.includes("/categoria") ? "active" : ""
               }`}
             >
               Categorías
-            </Nav.Link>
-            <Nav.Link
+            </Link>
+            <Link
               href="/ofertas"
               className={`nav-link-custom ${
                 pathname === "/ofertas" ? "active" : ""
               }`}
             >
               Ofertas
-            </Nav.Link>
-            <Nav.Link
+            </Link>
+            <Link
               href="/nosotros"
               className={`nav-link-custom ${
                 pathname === "/nosotros" ? "active" : ""
               }`}
             >
               Nosotros
-            </Nav.Link>
-            <Nav.Link
+            </Link>
+            <Link
               href="/blog"
               className={`nav-link-custom ${
                 pathname === "/blog" ? "active" : ""
               }`}
             >
               Blog
-            </Nav.Link>
-            <Nav.Link
+            </Link>
+            <Link
               href="/contacto"
               className={`nav-link-custom ${
                 pathname === "/contacto" ? "active" : ""
               }`}
             >
               Contacto
-            </Nav.Link>
+            </Link>
           </Nav>
 
           <Nav className="ms-auto d-flex align-items-center header-actions">
             {mounted && user ? (
-              <Dropdown>
+              <Dropdown align="end" className="me-2">
                 <Dropdown.Toggle
                   variant="outline-light"
                   id="dropdown-user"
                   className="d-flex align-items-center"
                 >
-                  👤 {user.nombre || user.email}
+                  👤 <span className="ms-1">{user.nombre ?? user.email}</span>
                   {(user.rol === "admin" || user.isAdmin) && (
-                    <Badge bg="warning" text="dark" className="ms-1">
+                    <Badge bg="warning" text="dark" className="ms-2">
                       Admin
                     </Badge>
                   )}
@@ -139,23 +143,39 @@ function HeaderComponent() {
                   <Dropdown.ItemText>
                     <small>
                       Conectado como{" "}
-                      <strong>{user.nombre || user.email}</strong>
+                      <strong>{user.nombre ?? user.email}</strong>
                     </small>
                   </Dropdown.ItemText>
 
-                  {(user.rol === "admin" || user.isAdmin) && (
+                  <Dropdown.Item as="div">
+                    <Link href="/perfil" className="dropdown-item">
+                      Mi perfil
+                    </Link>
+                  </Dropdown.Item>
+
+                  <Dropdown.Item as="div">
+                    <Link
+                      href={user.rol === "admin" ? "/admin" : "/mis-pedidos"}
+                      className="dropdown-item"
+                    >
+                      {user.rol === "admin" ? "Panel Admin" : "Mis pedidos"}
+                    </Link>
+                  </Dropdown.Item>
+
+                  {user.rol === "admin" && (
                     <>
+                      <Dropdown.Divider />
                       <Dropdown.Item as="div">
-                        <Link href="/admin" className="dropdown-item">
-                          ⚙️ Administrar
+                        <Link href="/admin/ventas" className="dropdown-item">
+                          Ver Ventas
                         </Link>
                       </Dropdown.Item>
-                      <Dropdown.Divider />
                     </>
                   )}
 
+                  <Dropdown.Divider />
                   <Dropdown.Item onClick={handleLogout}>
-                    🚪 Cerrar Sesión
+                    🚪 Cerrar sesión
                   </Dropdown.Item>
                 </Dropdown.Menu>
               </Dropdown>
@@ -169,7 +189,7 @@ function HeaderComponent() {
                 </Link>
                 <Link
                   href="/registro"
-                  className="btn btn-primary btn-sm me-2 register-btn"
+                  className="btn btn-primary btn-sm me-3 register-btn"
                 >
                   Registro
                 </Link>
@@ -180,13 +200,10 @@ function HeaderComponent() {
               href="/carrito"
               className="btn btn-outline-warning btn-sm cart-btn position-relative"
             >
-              🛒 Carrito
+              🛒
+              <span className="ms-1">Carrito</span>
               {itemsCount > 0 && (
-                <Badge
-                  bg="light"
-                  text="dark"
-                  className="cart-badge position-absolute top-0 start-100 translate-middle"
-                >
+                <Badge bg="light" text="dark" className="cart-badge ms-2">
                   {itemsCount}
                 </Badge>
               )}
@@ -197,5 +214,3 @@ function HeaderComponent() {
     </Navbar>
   );
 }
-
-export default React.memo(HeaderComponent);

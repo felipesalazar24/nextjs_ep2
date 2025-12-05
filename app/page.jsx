@@ -78,6 +78,25 @@ const getEffectivePrice = (product, offer) => {
   return { oldPrice: oldPrice || null, price, percent: percent || 0 };
 };
 
+// Helper para leer respuesta flexible (JSON/text/204)
+async function parseResponseSafely(res) {
+  if (!res) return null;
+  const contentType = res.headers?.get?.("content-type") || "";
+  if (res.status === 204) return { ok: true, status: 204, data: null };
+  if (contentType.includes("application/json")) {
+    try {
+      const data = await res.json();
+      return { ok: res.ok, status: res.status, data };
+    } catch {
+      const txt = await res.text().catch(() => "");
+      return { ok: res.ok, status: res.status, data: txt || null };
+    }
+  } else {
+    const txt = await res.text().catch(() => "");
+    return { ok: res.ok, status: res.status, data: txt || null };
+  }
+}
+
 export default function HomePage() {
   const [productos, setProductos] = useState([]);
   const [sales, setSales] = useState([]);
@@ -97,33 +116,49 @@ export default function HomePage() {
       setError(null);
 
       try {
-        const [prodData, salesRes] = await Promise.all([
+        // Cargar productos y ventas (nueva API /api/ventas)
+        const [prodData, ventasRes] = await Promise.all([
           loadProducts(),
-          fetch(`/api/sales?ts=${Date.now()}`).catch(() => null),
+          fetch(`/api/ventas?ts=${Date.now()}`).catch(() => null),
         ]);
 
-        let salesData = [];
-        if (salesRes && salesRes.ok) {
-          salesData = await salesRes.json().catch(() => []);
+        let ventasData = [];
+        if (ventasRes) {
+          const parsed = await parseResponseSafely(ventasRes);
+          if (
+            parsed &&
+            (parsed.ok || parsed.status === 200 || parsed.status === 201)
+          ) {
+            ventasData = Array.isArray(parsed.data)
+              ? parsed.data
+              : parsed.data?.records ??
+                parsed.data?.ventas ??
+                parsed.data ??
+                [];
+            // ensure array
+            if (!Array.isArray(ventasData)) ventasData = [];
+          } else {
+            ventasData = [];
+          }
         } else {
-          salesData = [];
+          ventasData = [];
         }
 
         if (!mounted) return;
 
         setProductos(Array.isArray(prodData) ? prodData : []);
-        setSales(Array.isArray(salesData) ? salesData : []);
+        setSales(Array.isArray(ventasData) ? ventasData : []);
 
-        // fetch images for first 8 candidates (top will be computed later)
+        // fetch images for first 12 candidates (top will be computed later)
         const forProducts = Array.isArray(prodData)
           ? prodData.slice(0, 12)
           : [];
         const promises = forProducts.map(async (p) => {
           const imgs = await getProductImages(
-            p.nombre || p.nombre || p.id,
-            p.atributo || p.categoria || "",
+            p.nombre ?? p.title ?? String(p.id ?? p._id),
+            p.atributo ?? p.categoria ?? "",
             4
-          );
+          ).catch(() => []);
           return [String(p.id ?? p._id ?? p.nombre), imgs];
         });
         const results = await Promise.all(promises);
@@ -168,13 +203,31 @@ export default function HomePage() {
     );
   }
 
+  // Construir mapa de ventas: soporta múltiples formas de estructura de la API ventas
   const soldMap = {};
-  for (const sale of Array.isArray(sales) ? sales : []) {
-    if (!sale || !Array.isArray(sale.items)) continue;
-    for (const it of sale.items) {
-      const pid = it.id ?? it.productId ?? it._id ?? it.sku ?? null;
+  for (const venta of Array.isArray(sales) ? sales : []) {
+    // ventas pueden contener: items, detalles, orderItems, lineItems, productos
+    const items =
+      venta.items ??
+      venta.detalles ??
+      venta.lineItems ??
+      venta.orderItems ??
+      venta.productos ??
+      [];
+    if (!Array.isArray(items)) continue;
+    for (const it of items) {
+      // distintos nombres posibles para id y cantidad
+      const pid =
+        it.productoId ??
+        it.productId ??
+        it.id ??
+        it._id ??
+        it.sku ??
+        it.codigo ??
+        null;
+      const qty =
+        Number(it.cantidad ?? it.qty ?? it.quantity ?? it.cant ?? 1) || 0;
       const key = String(pid ?? it.nombre ?? JSON.stringify(it));
-      const qty = Number(it.cantidad ?? it.qty ?? it.quantity ?? 1) || 0;
       soldMap[key] = (soldMap[key] || 0) + qty;
     }
   }
