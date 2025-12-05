@@ -8,174 +8,150 @@ import {
   Card,
   Table,
   Button,
-  Badge,
+  Spinner,
+  Alert,
 } from "react-bootstrap";
 import { useRouter } from "next/navigation";
 
 /**
- * Página de compra exitosa
- * - Si existe query param ?order=<id> intenta obtener pedido desde /api/ventas/:id
- * - Si no, usa sessionStorage.lastOrder como fallback (comportamiento previo)
- * - Normaliza la estructura del pedido para mostrarlo independientemente de la forma del backend
+ * Página de éxito del checkout
+ * - Lee sessionStorage.lastOrder (set por el checkout) y muestra un resumen breve.
+ * - Si no encuentra lastOrder intenta leer el query param "order" y, si hay id,
+ *   intenta recuperar /api/ventas/:id (si tu API lo soporta).
+ * - Si no hay nada muestra un mensaje amigable.
+ *
+ * Pegar en: app/checkout/success/page.jsx (rama draft/youthful-hill)
  */
-
-function normalizeOrder(raw) {
-  // raw puede venir con distintas formas; intentamos normalizar a:
-  // { id, customer: { nombre, email, telefono, calle, depto, comuna, region }, items: [{ id, nombre, imagen, precio, cantidad, subtotal }], total, fecha, direccion }
-  if (!raw) return null;
-  // Si ya tiene items
-  if (Array.isArray(raw.items) && raw.items.length >= 0) {
-    return {
-      id: raw.id ?? raw.codigo ?? raw.orderId,
-      customer: raw.customer ?? raw.cliente ?? raw.usuario ?? {},
-      items: raw.items.map((it, idx) => ({
-        id: it.id ?? it.productoId ?? idx,
-        nombre: it.nombre ?? it.title ?? `Producto ${it.id ?? it.productoId ?? idx}`,
-        imagen: it.imagen ?? it.image ?? null,
-        precio: Number(it.precio ?? it.precio_unitario ?? it.precioUnitario ?? 0),
-        cantidad: Number(it.cantidad ?? it.quantity ?? 1),
-        subtotal: Number(it.subtotal ?? (it.precio ? it.precio * (it.cantidad || 1) : (it.precio_unitario || it.precioUnitario || 0) * (it.cantidad || 1))),
-      })),
-      total: Number(raw.total ?? raw.amount ?? 0),
-      fecha: raw.fecha ?? raw.date ?? null,
-      direccion: raw.direccion ?? null,
-    };
-  }
-
-  // Si tiene 'detalles' (estructura del backend Java)
-  if (Array.isArray(raw.detalles)) {
-    const items = raw.detalles.map((d, idx) => ({
-      id: d.productoId ?? idx,
-      nombre: d.nombre ?? `Producto ${d.productoId ?? idx}`,
-      imagen: d.imagen ?? null,
-      precio: Number(d.precioUnitario ?? d.precio_unitario ?? 0),
-      cantidad: Number(d.cantidad ?? 1),
-      subtotal: Number(d.subtotal ?? (d.precioUnitario || d.precio_unitario || 0) * (d.cantidad || 1)),
-    }));
-    return {
-      id: raw.id,
-      customer: raw.cliente ?? raw.customer ?? {},
-      items,
-      total: Number(raw.total ?? 0),
-      fecha: raw.fecha ?? null,
-      direccion: raw.direccion ?? null,
-    };
-  }
-
-  // fallback: return raw minimally wrapped
-  return {
-    id: raw.id ?? raw.orderId,
-    customer: raw.customer ?? {},
-    items: Array.isArray(raw.items) ? raw.items : [],
-    total: Number(raw.total ?? 0),
-    fecha: raw.fecha ?? null,
-    direccion: raw.direccion ?? null,
-  };
-}
 
 export default function CheckoutSuccessPage() {
   const router = useRouter();
-
-  const [orderIdParam, setOrderIdParam] = useState(null);
+  const [loading, setLoading] = useState(true);
   const [order, setOrder] = useState(null);
-  const [offersMap, setOffersMap] = useState(new Map());
-  const [offersLoading, setOffersLoading] = useState(true);
-  const [loading, setLoading] = useState(false);
-  const [fetchError, setFetchError] = useState(null);
+  const [error, setError] = useState(null);
 
-  // Leer la query 'order' desde window.location.search (solo en cliente)
-  useEffect(() => {
-    try {
-      if (typeof window !== "undefined") {
-        const sp = new URLSearchParams(window.location.search);
-        const order = sp.get("order");
-        setOrderIdParam(order);
-      }
-    } catch (err) {
-      // ignore
-    }
-  }, []);
-
-  // Si viene orderIdParam, solicitamos al backend el pedido vía la nueva API /api/ventas/:id
   useEffect(() => {
     let mounted = true;
-    (async () => {
-      if (!orderIdParam) return;
-      setLoading(true);
-      setFetchError(null);
-      try {
-        const base = process?.env?.NEXT_PUBLIC_BASE_URL ?? "";
-        const res = await fetch(`${base}/api/ventas/${encodeURIComponent(orderIdParam)}`, {
-          headers: { "Accept": "application/json" },
-        });
-        if (!mounted) return;
-        if (!res.ok) {
-          const txt = await res.text().catch(() => "");
-          setFetchError(`Error ${res.status}: ${txt}`);
-          setOrder(null);
-          return;
-        }
-        const data = await res.json().catch(() => null);
-        const normalized = normalizeOrder(data);
-        setOrder(normalized);
-      } catch (err) {
-        console.warn("Error fetching order by id:", err);
-        if (!mounted) return;
-        setFetchError("Error al obtener información del pedido");
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-    return () => (mounted = false);
-  }, [orderIdParam]);
 
-  // Cargar el último pedido desde sessionStorage (cliente) si no vino por query param
-  useEffect(() => {
-    try {
-      if (typeof window !== "undefined") {
-        const raw = sessionStorage.getItem("lastOrder");
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          const normalized = normalizeOrder(parsed);
-          // Solo setear si no hay order traído por query param
-          setOrder((prev) => prev ?? normalized);
+    async function load() {
+      try {
+        // 1) intentar sessionStorage.lastOrder
+        if (typeof window !== "undefined") {
+          const raw = sessionStorage.getItem("lastOrder");
+          if (raw) {
+            try {
+              const parsed = JSON.parse(raw);
+              if (mounted) {
+                setOrder(parsed);
+                setLoading(false);
+                return;
+              }
+            } catch {
+              // ignore and continue
+            }
+          }
+
+          // 2) intentar query param ?order=<id> y fetch a /api/ventas/:id si existe
+          const params = new URLSearchParams(window.location.search);
+          const orderId = params.get("order");
+          if (orderId) {
+            try {
+              const res = await fetch(
+                `/api/ventas/${encodeURIComponent(orderId)}`
+              ).catch(() => null);
+              if (res && res.ok) {
+                const data = await res.json().catch(() => null);
+                if (mounted) {
+                  setOrder(data?.venta ?? data ?? null);
+                  setLoading(false);
+                  return;
+                }
+              }
+            } catch (err) {
+              // ignore fetch failure, fallback to message
+            }
+          }
+        }
+
+        if (mounted) {
+          setError(
+            "No se encontró información del pedido. Si el pago se realizó, revisa tu correo o contacta soporte."
+          );
+          setLoading(false);
+        }
+      } catch (err) {
+        if (mounted) {
+          setError("Error al leer el pedido.");
+          setLoading(false);
         }
       }
-    } catch (err) {
-      // ignore
     }
-  }, [orderIdParam]);
 
-  // Cargar ofertas (cliente) - mantiene comportamiento previo
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      setOffersLoading(true);
-      try {
-        // loadOffers puede existir en otras utilidades del repo; si no, simplemente setea vacío
-        if (typeof window !== "undefined" && typeof window.loadOffers === "function") {
-          const { offersMap: om } = await window.loadOffers();
-          if (!mounted) return;
-          setOffersMap(om);
-        } else {
-          // fallback: vacío
-          setOffersMap(new Map());
-        }
-      } catch (err) {
-        console.warn("Error cargando ofertas:", err);
-        if (mounted) setOffersMap(new Map());
-      } finally {
-        if (mounted) setOffersLoading(false);
-      }
-    })();
+    load();
     return () => {
       mounted = false;
     };
   }, []);
 
-  const handlePrint = () => {
-    if (typeof window !== "undefined") window.print();
-  };
+  if (loading) {
+    return (
+      <Container className="py-5 text-center">
+        <Spinner animation="border" role="status" />
+      </Container>
+    );
+  }
+
+  if (!order) {
+    return (
+      <Container className="py-5">
+        <Row className="justify-content-center">
+          <Col md={8}>
+            <Card className="shadow-sm">
+              <Card.Body className="text-center">
+                <h4>Gracias por tu compra</h4>
+                <p className="text-muted">
+                  No encontramos los datos del pedido en esta sesión. Si
+                  completaste el pago, revisa el correo que indicaste o contacta
+                  soporte.
+                </p>
+                <div className="d-flex justify-content-center gap-2 mt-3">
+                  <Button
+                    variant="primary"
+                    onClick={() => router.push("/productos")}
+                  >
+                    Ver productos
+                  </Button>
+                  <Button
+                    variant="outline-secondary"
+                    onClick={() => router.push("/contacto")}
+                  >
+                    Contactar soporte
+                  </Button>
+                </div>
+                {error && <div className="mt-3 text-danger small">{error}</div>}
+              </Card.Body>
+            </Card>
+          </Col>
+        </Row>
+      </Container>
+    );
+  }
+
+  // Order exists -> normalize fields for display
+  const orderId =
+    order.id ?? order.orderId ?? order.pedidoId ?? order._id ?? "";
+  const direccion =
+    order.direccion ?? order.meta?.direccion ?? order.address ?? "";
+  const meta = order.meta ?? {};
+  const detalles = Array.isArray(order.detalles)
+    ? order.detalles
+    : order.items ?? order.lineItems ?? [];
+
+  const total =
+    order.total ??
+    detalles.reduce(
+      (s, d) => s + Number(d.subtotal ?? d.precioUnitario ?? d.price ?? 0),
+      0
+    );
 
   return (
     <Container className="py-5">
@@ -183,140 +159,102 @@ export default function CheckoutSuccessPage() {
         <Col lg={10}>
           <Card className="shadow-sm">
             <Card.Body>
-              <div className="d-flex justify-content-between align-items-start mb-3">
-                <div>
-                  <h4 className="text-success">✓ Se ha realizado la compra</h4>
-                  <small className="text-muted">
-                    Código orden: {order?.id || orderIdParam || "—"}
-                  </small>
-                </div>
-                <Badge bg="light" text="dark">
-                  Completado
-                </Badge>
-              </div>
+              <h3 className="mb-2">¡Pedido recibido!</h3>
+              <p className="text-muted">
+                Gracias por tu compra. Se ha generado el pedido{" "}
+                <strong>{orderId}</strong>. Revisa tu correo para más detalles.
+              </p>
 
-              {loading ? (
-                <div className="text-center py-4">Cargando información del pedido...</div>
-              ) : fetchError ? (
-                <div className="text-center py-4 text-danger">{fetchError}</div>
-              ) : order ? (
-                <>
-                  <h6 className="mb-2">Información del cliente</h6>
-                  <Row className="mb-3">
-                    <Col md={4}>
-                      <strong>Nombre:</strong> {order.customer?.nombre ?? order.customer?.name ?? "-"}
-                    </Col>
-                    <Col md={4}>
-                      <strong>Correo:</strong> {order.customer?.email ?? "-"}
-                    </Col>
-                    <Col md={4}>
-                      <strong>Teléfono:</strong> {order.customer?.telefono ?? "-"}
-                    </Col>
-                  </Row>
+              <Row className="mt-4">
+                <Col md={6}>
+                  <h6>Datos del pedido</h6>
+                  <div className="small text-muted">Total</div>
+                  <div className="h5 mb-2">
+                    ${Number(total || 0).toLocaleString("es-CL")}
+                  </div>
 
-                  <h6 className="mb-2">Dirección de entrega</h6>
-                  <p className="text-muted mb-3">
-                    {order.direccion ?? order.customer?.calle ?? "-"}{" "}
-                    {order.customer?.depto ? `, ${order.customer.depto}` : ""} —{" "}
-                    {order.customer?.comuna ?? order.customer?.city ?? "-"}, {order.customer?.region ?? "-"}
-                  </p>
+                  <div className="small text-muted">Dirección</div>
+                  <div className="mb-2">
+                    {direccion || meta?.direccion || "-"}
+                  </div>
 
-                  <h6 className="mb-2">Productos</h6>
-                  <Table responsive bordered size="sm" className="mb-3">
-                    <thead>
-                      <tr>
-                        <th>Imagen</th>
-                        <th>Nombre</th>
-                        <th className="text-end">Precio</th>
-                        <th className="text-center">Cantidad</th>
-                        <th className="text-end">Subtotal</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {Array.isArray(order.items) && order.items.length > 0 ? (
-                        order.items.map((it) => (
-                          <tr key={it.id}>
-                            <td style={{ width: 80 }}>
-                              {it.imagen ? (
-                                <img
-                                  src={it.imagen}
-                                  alt={it.nombre}
-                                  style={{
-                                    width: 64,
-                                    height: 48,
-                                    objectFit: "cover",
-                                  }}
-                                />
-                              ) : null}
-                            </td>
-                            <td>{it.nombre}</td>
-                            <td className="text-end">
-                              ${Number(it.precio || 0).toLocaleString("es-CL")}
-                            </td>
-                            <td className="text-center">
-                              {Number(it.cantidad || 0)}
-                            </td>
-                            <td className="text-end">
-                              $
-                              {(
-                                Number(it.subtotal ?? (it.precio || 0) * (it.cantidad || 1)) || 0
-                              ).toLocaleString("es-CL")}
-                            </td>
-                          </tr>
-                        ))
-                      ) : (
+                  <div className="small text-muted">Contacto</div>
+                  <div>{meta?.nombre || meta?.email || "-"}</div>
+                  <div className="small text-muted">{meta?.telefono || ""}</div>
+                </Col>
+
+                <Col md={6}>
+                  <h6>Resumen de artículos</h6>
+                  {detalles && detalles.length > 0 ? (
+                    <Table size="sm" bordered hover className="mt-2">
+                      <thead>
                         <tr>
-                          <td colSpan={5} className="text-center text-muted">
-                            No hay items en la orden
-                          </td>
+                          <th>Producto</th>
+                          <th style={{ width: 80 }}>Cant.</th>
+                          <th style={{ width: 120 }} className="text-end">
+                            Subtotal
+                          </th>
                         </tr>
-                      )}
-                    </tbody>
-                  </Table>
-
-                  <div className="d-flex justify-content-between align-items-center">
-                    <div />
-                    <div className="text-end">
-                      <div className="fw-bold">Total pagado</div>
-                      <div className="h4 text-primary">
-                        ${Number(order.total || 0).toLocaleString("es-CL")}
-                      </div>
+                      </thead>
+                      <tbody>
+                        {detalles.map((d, i) => {
+                          const nombre =
+                            d.nombre ??
+                            d.productName ??
+                            d.title ??
+                            d.productoNombre ??
+                            d.productoId ??
+                            `#${d.productoId ?? i}`;
+                          const cantidad =
+                            Number(d.cantidad ?? d.qty ?? d.quantity ?? 1) || 1;
+                          const subtotal =
+                            Number(
+                              d.subtotal ?? d.precioUnitario ?? d.price ?? 0
+                            ) || 0;
+                          return (
+                            <tr key={i}>
+                              <td
+                                style={{
+                                  maxWidth: 220,
+                                  whiteSpace: "nowrap",
+                                  overflow: "hidden",
+                                  textOverflow: "ellipsis",
+                                }}
+                              >
+                                {nombre}
+                              </td>
+                              <td className="text-center">{cantidad}</td>
+                              <td className="text-end">
+                                ${Number(subtotal).toLocaleString("es-CL")}
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </Table>
+                  ) : (
+                    <div className="text-muted small">
+                      No hay detalles disponibles.
                     </div>
-                  </div>
+                  )}
+                </Col>
+              </Row>
 
-                  <div className="d-flex gap-2 mt-4">
-                    <Button variant="secondary" onClick={handlePrint}>
-                      Imprimir boleta en PDF
-                    </Button>
-                    <Button
-                      variant="outline-primary"
-                      onClick={() => router.push("/")}
-                    >
-                      Volver al inicio
-                    </Button>
-                  </div>
-                </>
-              ) : (
-                <div className="text-center py-4">
-                  <p className="text-muted mb-2">
-                    No se encontró información de la orden.
-                  </p>
-                  <div className="d-flex justify-content-center gap-2">
-                    <Button
-                      variant="primary"
-                      onClick={() => router.push("/productos")}
-                    >
-                      Ver Productos
-                    </Button>
-                    <Button
-                      variant="outline-secondary"
-                      onClick={() => router.push("/")}
-                    >
-                      Volver al inicio
-                    </Button>
-                  </div>
-                </div>
-              )}
+              <div className="d-flex justify-content-end mt-3">
+                <Button
+                  variant="outline-primary"
+                  className="me-2"
+                  onClick={() => router.push("/productos")}
+                >
+                  Seguir comprando
+                </Button>
+                <Button
+                  variant="primary"
+                  onClick={() => router.push("/contacto")}
+                >
+                  Contactar soporte
+                </Button>
+              </div>
             </Card.Body>
           </Card>
         </Col>

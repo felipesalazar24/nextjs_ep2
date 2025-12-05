@@ -17,7 +17,7 @@ import { useRouter } from "next/navigation";
 import { useCart } from "../context/CartContext";
 import { useAuth } from "../context/AuthContext";
 
-/* ---------- Helpers de regiones (mantener como en tu archivo actual) ---------- */
+/* ---------- Helpers de regiones (copiado desde tu archivo actual) ---------- */
 const REGION_COMUNAS = {
   "Arica y Parinacota": ["Arica", "Camarones", "Putre", "General Lagos"],
   Tarapacá: [
@@ -362,39 +362,37 @@ const REGION_COMUNAS = {
 const REGIONS = Object.keys(REGION_COMUNAS);
 /* ------------------------------------------------------------------------------------------------------ */
 
-/* ---------- Helpers para ofertas (inline) ---------- */
+/* ---------- Helpers para ofertas: ahora obtenemos datos desde /api/productos ---------- */
+/**
+ * Antes usábamos /api/offers — ahora esa API fue reemplazada por /api/productos.
+ * Aquí pedimos /api/productos y extraemos la información de oferta desde cada producto
+ * si contiene campos como 'oferta', 'oferPorcentaje', 'precio' etc.
+ */
 const loadOffers = async () => {
-  let serverOffers = [];
   try {
-    const res = await fetch("/api/offers").catch(() => null);
-    if (res && res.ok) serverOffers = await res.json().catch(() => []);
-  } catch (err) {
-    serverOffers = [];
-  }
-
-  let created = [];
-  try {
-    if (typeof window !== "undefined") {
-      const raw = localStorage.getItem("createdOffers");
-      created = raw ? JSON.parse(raw) : [];
+    const res = await fetch("/api/productos");
+    if (!res.ok) return { offersArray: [], offersMap: new Map() };
+    const prods = await res.json().catch(() => []);
+    const map = new Map();
+    for (const p of Array.isArray(prods) ? prods : []) {
+      const pid = String(p.id ?? p._id ?? p.sku ?? "").trim();
+      if (!pid) continue;
+      // If product declares an offer, create an offer entry
+      const oferta = !!p.oferta || !!p.hasOffer;
+      const percent = Number(p.oferPorcentaje ?? p.offerPercent ?? 0) || 0;
+      if (oferta || percent > 0) {
+        const oldPrice = Number(p.precio ?? p.price ?? 0) || 0;
+        const newPrice = percent
+          ? Math.round(oldPrice * (1 - percent / 100))
+          : oldPrice;
+        map.set(pid, { oldPrice, newPrice, percent, source: "productos" });
+      }
     }
+    return { offersArray: Array.from(map.values()), offersMap: map };
   } catch (err) {
-    created = [];
+    console.warn("loadOffers error:", err);
+    return { offersArray: [], offersMap: new Map() };
   }
-
-  const map = new Map();
-  for (const o of serverOffers || []) {
-    const pid = String(o.productId ?? o.id ?? "").trim();
-    if (!pid) continue;
-    map.set(pid, { ...o, source: "server" });
-  }
-  for (const o of created || []) {
-    const pid = String(o.productId ?? "").trim();
-    if (!pid) continue;
-    map.set(pid, { ...o, source: "admin" });
-  }
-
-  return { offersArray: Array.from(map.values()), offersMap: map };
 };
 
 const getOfferForProduct = (offersMap, product) => {
@@ -427,26 +425,36 @@ export default function CheckoutPage() {
 
   const cartContext = useCart();
   const cartItems = cartContext.items ?? cartContext.cart ?? [];
-  const getTotal =
-    typeof cartContext.getTotal === "function"
-      ? cartContext.getTotal
-      : () =>
-          (cartItems || []).reduce(
-            (s, it) =>
-              s + (Number(it.precio || 0) * Number(it.cantidad || 0) || 0),
-            0
-          );
+  // We won't rely on createOrder from context (it may not exist) — we'll POST directly.
   const clearCart =
     typeof cartContext.clearCart === "function"
       ? cartContext.clearCart
       : () => {};
-  const createOrder = cartContext.createOrder;
 
-  // offers state
+  // offers
   const [offersMap, setOffersMap] = useState(new Map());
   const [offersLoading, setOffersLoading] = useState(true);
 
-  // compute total using effective prices (offers applied)
+  useEffect(() => {
+    let mounted = true;
+    (async () => {
+      setOffersLoading(true);
+      try {
+        const { offersMap: om } = await loadOffers();
+        if (!mounted) return;
+        setOffersMap(om);
+      } catch (err) {
+        if (mounted) setOffersMap(new Map());
+      } finally {
+        if (mounted) setOffersLoading(false);
+      }
+    })();
+    return () => {
+      mounted = false;
+    };
+  }, []);
+
+  // compute total using effective prices (offers applied if any)
   const totalEffective = useMemo(() => {
     let sum = 0;
     for (const it of cartItems || []) {
@@ -458,29 +466,16 @@ export default function CheckoutPage() {
     return sum;
   }, [cartItems, offersMap]);
 
-  const total = useMemo(() => getTotal(), [cartItems, cartContext]);
+  const total = useMemo(() => {
+    return (cartItems || []).reduce(
+      (s, it) =>
+        s +
+        (Number(it.precio || it.price || 0) * Number(it.cantidad || 0) || 0),
+      0
+    );
+  }, [cartItems]);
 
   const [blocked, setBlocked] = useState(null);
-
-  useEffect(() => {
-    let mounted = true;
-    (async () => {
-      setOffersLoading(true);
-      try {
-        const { offersMap: om } = await loadOffers();
-        if (!mounted) return;
-        setOffersMap(om);
-      } catch (err) {
-        console.warn("Error cargando ofertas:", err);
-        if (mounted) setOffersMap(new Map());
-      } finally {
-        if (mounted) setOffersLoading(false);
-      }
-    })();
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   useEffect(() => {
     const hasItems = Array.isArray(cartItems) && cartItems.length > 0;
@@ -502,7 +497,6 @@ export default function CheckoutPage() {
   const [comunasOptions, setComunasOptions] = useState([
     "Selecciona una comuna",
   ]);
-
   const [errors, setErrors] = useState({});
   const [serverMsg, setServerMsg] = useState(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -521,7 +515,7 @@ export default function CheckoutPage() {
         nombre: user.nombre || prev.nombre || "",
         apellidos: user.apellidos || user.apellido || prev.apellidos || "",
         email: user.email || user.mail || prev.email || "",
-        telefono: user.telefono || user.telefono || prev.telefono || "",
+        telefono: user.telefono || prev.telefono || "",
         calle: user.direccion || user.calle || prev.calle || "",
         depto: user.depto || user.numero || prev.depto || "",
         region: normalizedRegion || prev.region || "",
@@ -572,6 +566,17 @@ export default function CheckoutPage() {
     return newErrors;
   };
 
+  // Build detalles array from cart items
+  const buildDetallesFromCart = () => {
+    return (cartItems || []).map((it) => {
+      const productoId = Number(it.id ?? it.productoId ?? it._id ?? 0) || 0;
+      const cantidad = Number(it.cantidad ?? it.qty ?? it.quantity ?? 1) || 1;
+      const precioUnitario = Number(it.precio ?? it.price ?? 0) || 0;
+      const subtotal = precioUnitario * cantidad;
+      return { productoId, cantidad, precioUnitario, subtotal };
+    });
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setServerMsg(null);
@@ -581,28 +586,31 @@ export default function CheckoutPage() {
       window.scrollTo({ top: 0, behavior: "smooth" });
       return;
     }
-
     if (!cartItems || cartItems.length === 0) {
       setServerMsg({ type: "danger", text: "El carrito está vacío." });
       return;
     }
 
     setIsSubmitting(true);
-
     try {
-      // build payload in the shape expected by your backend:
-      // { direccion, usuarioId, total, detalles: [{ productoId, cantidad, precioUnitario, subtotal }, ...] }
       const direccionFull = `${form.calle}${
         form.depto ? " #" + form.depto : ""
       }, ${form.comuna}, ${form.region}`;
-      const usuarioId =
-        user?.id ?? user?.usuarioId ?? user?.userId ?? user?.uid ?? 0;
+      const usuarioId = Number(
+        user?.id ?? user?.usuarioId ?? user?.userId ?? user?.uid ?? 0
+      );
 
-      // Instead of manually POSTing here, use the context createOrder helper
-      const payloadForCreate = {
+      const detalles = buildDetallesFromCart();
+      const totalToSend = Number(
+        totalEffective ||
+          detalles.reduce((s, d) => s + Number(d.subtotal || 0), 0)
+      );
+
+      const payload = {
         direccion: direccionFull,
-        usuarioId: Number(usuarioId || 0),
-        total: Number(totalEffective || 0),
+        usuarioId: usuarioId || 0,
+        total: totalToSend,
+        detalles,
         meta: {
           nombre: form.nombre,
           email: form.email,
@@ -611,48 +619,64 @@ export default function CheckoutPage() {
         },
       };
 
-      // createOrder builds detalles from cart and posts to /api/ventas
-      const created = await createOrder(payloadForCreate);
+      // Headers (include authorization if user.token exists)
+      const headers = { "Content-Type": "application/json" };
+      if (user?.token) headers["Authorization"] = `Bearer ${user.token}`;
 
-      const createdId =
-        created?.id ?? created?.pedidoId ?? created?.orderId ?? null;
+      // POST directly to /api/ventas (no reliance on createOrder)
+      const res = await fetch("/api/ventas", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(payload),
+      });
 
-      // ensure lastOrder is available (createOrder already writes sessionStorage but keep fallback)
+      const text = await res.text().catch(() => "");
+      let data = null;
+      try {
+        data = text ? JSON.parse(text) : null;
+      } catch {
+        data = text;
+      }
+
+      if (!res.ok && res.status !== 201) {
+        const message =
+          (data && (data.error || data.message)) ||
+          `Error creando pedido (${res.status})`;
+        throw new Error(message);
+      }
+
+      const created = (data && (data.venta ?? data.order ?? data)) || null;
+      // Store last order for success page
       try {
         if (typeof window !== "undefined") {
           sessionStorage.setItem(
             "lastOrder",
-            JSON.stringify(created ?? payloadForCreate)
+            JSON.stringify(created ?? payload)
           );
         }
       } catch (err) {
         // ignore
       }
 
-      // redirect to success using createdId (or empty)
+      // clear cart on success
+      try {
+        clearCart();
+      } catch (err) {
+        // ignore
+      }
+
+      // Redirect to success
+      const createdId =
+        created?.id ?? created?.orderId ?? created?.pedidoId ?? "";
       router.push(
         `/checkout/success?order=${encodeURIComponent(createdId ?? "")}`
       );
     } catch (err) {
-      console.error("Error creating pedido via createOrder:", err);
+      console.error("Checkout submit error:", err);
       setServerMsg({
         type: "danger",
         text: err?.message || "Error procesando el pedido",
       });
-      // optionally store lastFailedOrder for debugging
-      try {
-        if (typeof window !== "undefined") {
-          sessionStorage.setItem(
-            "lastFailedOrder",
-            JSON.stringify({
-              payload: { usuarioId: user?.id },
-              error: err?.message || err,
-            })
-          );
-        }
-      } catch (e) {
-        // ignore
-      }
     } finally {
       setIsSubmitting(false);
     }
@@ -678,7 +702,6 @@ export default function CheckoutPage() {
                   Debes agregar al menos un producto al carrito antes de acceder
                   al checkout.
                 </p>
-
                 <div className="d-flex justify-content-center gap-2 mt-3">
                   <Button
                     variant="primary"
@@ -693,7 +716,6 @@ export default function CheckoutPage() {
                     Ir al Carrito
                   </Button>
                 </div>
-
                 <div className="mt-3 text-muted small">
                   Si sigues teniendo problemas, asegúrate de que tu sesión esté
                   activa y que los productos se hayan agregado correctamente.
@@ -752,7 +774,7 @@ export default function CheckoutPage() {
                             Number(it.cantidad || it.quantity || it.qty || 1) ||
                             1;
                           return (
-                            <tr key={it.id}>
+                            <tr key={it.id ?? `${it.nombre}-${Math.random()}`}>
                               <td>
                                 {it.imagen ? (
                                   <img
@@ -781,8 +803,6 @@ export default function CheckoutPage() {
                                 )}
                               </td>
                               <td>{it.nombre}</td>
-
-                              {/* Precio: mostrar precio anterior (oldPrice) aquí */}
                               <td className="text-end">
                                 {ef && ef.oldPrice
                                   ? `$${Number(ef.oldPrice).toLocaleString(
@@ -792,8 +812,6 @@ export default function CheckoutPage() {
                                       "es-CL"
                                     )}`}
                               </td>
-
-                              {/* Oferta: mostrar % de descuento (o '-') */}
                               <td className="text-center">
                                 {ef && ef.percent ? (
                                   <Badge bg="danger">-{ef.percent}%</Badge>
@@ -801,14 +819,11 @@ export default function CheckoutPage() {
                                   <span className="text-muted">-</span>
                                 )}
                               </td>
-
                               <td className="text-center">{qty}</td>
-
-                              {/* Subtotal: usar precio efectivo (oferta si aplica) */}
                               <td className="text-end">
                                 $
                                 {(
-                                  Number(ef.price || it.precio || 0) * qty || 0
+                                  Number(ef.price || it.precio || 0) * qty
                                 ).toLocaleString("es-CL")}
                               </td>
                             </tr>
@@ -842,14 +857,12 @@ export default function CheckoutPage() {
                           Total a pagar
                         </Badge>
                       </div>
-
                       <div className="d-flex justify-content-between align-items-center mt-3">
                         <div className="fw-bold">Total</div>
                         <div className="h5 text-primary">
                           ${Number(totalEffective || 0).toLocaleString("es-CL")}
                         </div>
                       </div>
-
                       <div className="mt-3 text-muted small">
                         Una vez realizado el pago, recibirás un correo con los
                         detalles y despacho.
